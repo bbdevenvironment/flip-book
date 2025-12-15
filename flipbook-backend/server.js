@@ -1,4 +1,3 @@
-// server.js 
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
@@ -6,42 +5,69 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-
-// Get PORT from environment variable (Render provides this)
 const PORT = process.env.PORT || 5000;
 
 // Define upload directory
-const UPLOAD_DIR = 'uploads/'; 
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
 
-// Get the base URL from environment variable or use localhost for development
-const SERVER_BASE_URL = process.env.RENDER_EXTERNAL_URL 
-    ? `https://${process.env.RENDER_EXTERNAL_URL}/public/`
-    : `http://localhost:${PORT}/public/`;
-
-// --- Ensure upload directory exists ---
-if (!fs.existsSync(UPLOAD_DIR)){
+// Ensure upload directory exists
+if (!fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+    console.log(`Created upload directory: ${UPLOAD_DIR}`);
 }
 
-// --- Multer Configuration ---
+// Configure CORS
+const corsOptions = {
+  origin: [
+    'https://flip-book-frontend.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS']
+};
+
+app.use(cors(corsOptions));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Serve uploaded files publicly
+app.use('/public', express.static(UPLOAD_DIR, {
+    setHeaders: (res, filePath) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
+}));
+
+// Log all requests
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+});
+
+// Multer Configuration
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         cb(null, UPLOAD_DIR);
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        // Clean filename: keep original name, add unique suffix
         const originalName = path.parse(file.originalname).name;
         const extension = path.extname(file.originalname);
         const safeFileName = originalName.replace(/[^a-zA-Z0-9]/g, '-');
-        cb(null, safeFileName + '-' + uniqueSuffix + extension);
+        const finalFileName = safeFileName + '-' + uniqueSuffix + extension;
+        console.log(`Saving file as: ${finalFileName}`);
+        cb(null, finalFileName);
     }
 });
 
 const upload = multer({ 
     storage: storage,
     fileFilter: (req, file, cb) => {
+        console.log(`Received file: ${file.originalname}, type: ${file.mimetype}`);
+        
         if (file.mimetype !== 'application/pdf') {
+            console.log('Rejected: Not a PDF file');
             return cb(new Error('Only PDF files are allowed!'), false);
         }
         cb(null, true);
@@ -51,57 +77,117 @@ const upload = multer({
     }
 });
 
-// --- Middleware ---
-// Configure CORS to allow your Vercel frontend
-// In your server.js, replace the generic `app.use(cors());` with:
-const cors = require('cors');
-
-const corsOptions = {
-  origin: [
-    'https://flip-book-frontend.vercel.app', // Your live frontend
-    'https://flip-book-frontend-byswtmnk6-book-buddys-projects-7b4dd408.vercel.app', // Preview deployments
-    'http://localhost:5173' // For local development
-  ],
-  credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS']
+// Helper function to get base URL
+const getBaseUrl = (req) => {
+    // For production environments (Vercel, Render, etc.)
+    if (process.env.VERCEL_URL) {
+        return `https://${process.env.VERCEL_URL}`;
+    }
+    if (process.env.RENDER_EXTERNAL_URL) {
+        return process.env.RENDER_EXTERNAL_URL;
+    }
+    // For local development
+    const protocol = req.protocol;
+    const host = req.get('host');
+    return `${protocol}://${host}`;
 };
 
-app.use(cors(corsOptions));
-
-// Parse JSON and urlencoded bodies
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// CRITICAL: Serve uploaded files publicly
-app.use('/public', express.static(path.join(__dirname, UPLOAD_DIR), {
-    setHeaders: (res, path) => {
-        // Set CORS headers for static files too
-        res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-}));
-
-// --- Health Check Endpoint ---
+// Health Check Endpoint
 app.get('/api/health', (req, res) => {
+    const baseUrl = getBaseUrl(req);
     res.json({ 
         status: 'OK', 
         message: 'BookBuddy PDF Flipbook Server is running',
         timestamp: new Date().toISOString(),
-        baseUrl: SERVER_BASE_URL
+        baseUrl: baseUrl,
+        environment: process.env.NODE_ENV || 'development',
+        uploadDir: UPLOAD_DIR,
+        endpoints: {
+            upload: `${baseUrl}/api/upload-pdf`,
+            publicFiles: `${baseUrl}/public/{filename}`
+        }
     });
 });
 
-// --- API Endpoint ---
-app.post('/api/upload-pdf', upload.single('bookbuddy'), (req, res) => {
+// Test Endpoint
+app.get('/api/test', (req, res) => {
+    const baseUrl = getBaseUrl(req);
+    res.json({
+        message: 'BookBuddy Backend is operational',
+        serverTime: new Date().toISOString(),
+        baseUrl: baseUrl,
+        uploadEndpoint: `${baseUrl}/api/upload-pdf`,
+        publicFilesUrl: `${baseUrl}/public/`,
+        uploadDirectory: UPLOAD_DIR,
+        availableFiles: fs.readdirSync(UPLOAD_DIR)
+    });
+});
+
+// List uploaded files
+app.get('/api/files', (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'No PDF file uploaded or invalid file type.' 
+        const files = fs.readdirSync(UPLOAD_DIR);
+        const baseUrl = getBaseUrl(req);
+        
+        const fileList = files.map(file => ({
+            filename: file,
+            url: `${baseUrl}/public/${file}`,
+            size: fs.statSync(path.join(UPLOAD_DIR, file)).size,
+            created: fs.statSync(path.join(UPLOAD_DIR, file)).birthtime
+        }));
+        
+        res.json({
+            success: true,
+            count: files.length,
+            files: fileList
+        });
+    } catch (error) {
+        console.error('Error listing files:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error listing files',
+            error: error.message
+        });
+    }
+});
+
+// File upload endpoint
+app.post('/api/upload-pdf', (req, res, next) => {
+    console.log('Upload request received');
+    
+    // Handle the upload
+    upload.single('bookbuddy')(req, res, (err) => {
+        if (err) {
+            console.error('Upload error:', err);
+            
+            if (err instanceof multer.MulterError) {
+                if (err.code === 'LIMIT_FILE_SIZE') {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'File size too large. Maximum size is 50MB.'
+                    });
+                }
+                return res.status(400).json({
+                    success: false,
+                    message: `Upload error: ${err.message}`
+                });
+            }
+            return res.status(400).json({
+                success: false,
+                message: err.message
             });
         }
 
-        // Construct the public URL for the uploaded file
-        const publicFileUrl = `${SERVER_BASE_URL}${req.file.filename}`;
+        if (!req.file) {
+            console.log('No file in request');
+            return res.status(400).json({ 
+                success: false, 
+                message: 'No PDF file uploaded. Make sure to use field name "bookbuddy" in FormData.' 
+            });
+        }
+
+        const baseUrl = getBaseUrl(req);
+        const publicFileUrl = `${baseUrl}/public/${req.file.filename}`;
         
         console.log('File uploaded successfully:', {
             filename: req.file.filename,
@@ -116,76 +202,117 @@ app.post('/api/upload-pdf', upload.single('bookbuddy'), (req, res) => {
             filename: req.file.filename,
             originalname: req.file.originalname,
             size: req.file.size,
-            publicFileUrl: publicFileUrl
+            publicFileUrl: publicFileUrl,
+            downloadUrl: `${baseUrl}/api/download/${req.file.filename}`,
+            shareableUrl: `${baseUrl}/?file=${req.file.filename}`
         });
-    } catch (error) {
-        console.error('Upload error:', error);
-        res.status(500).json({
+    });
+});
+
+// Download endpoint
+app.get('/api/download/:filename', (req, res) => {
+    const filename = req.params.filename;
+    const filePath = path.join(UPLOAD_DIR, filename);
+    
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({
             success: false,
-            message: 'Server error during upload',
-            error: error.message
+            message: 'File not found'
         });
     }
-}, (error, req, res, next) => {
-    // Error handling middleware for Multer
-    if (error instanceof multer.MulterError) {
-        if (error.code === 'LIMIT_FILE_SIZE') {
-            return res.status(400).json({
+    
+    res.download(filePath, filename, (err) => {
+        if (err) {
+            console.error('Download error:', err);
+            res.status(500).json({
                 success: false,
-                message: 'File size too large. Maximum size is 50MB.'
+                message: 'Error downloading file'
             });
         }
-        return res.status(400).json({
-            success: false,
-            message: `Upload error: ${error.message}`
-        });
-    } else if (error) {
-        return res.status(400).json({
-            success: false,
-            message: error.message
-        });
-    }
-    next();
-});
-
-// --- Test Endpoint to verify server is working ---
-app.get('/api/test', (req, res) => {
-    res.json({
-        message: 'BookBuddy Backend is operational',
-        serverBaseUrl: SERVER_BASE_URL,
-        environment: process.env.NODE_ENV || 'development',
-        uploadDir: UPLOAD_DIR
     });
 });
 
-// --- 404 Handler ---
-app.use('*', (req, res) => {
+// Root endpoint
+app.get('/', (req, res) => {
+    const baseUrl = getBaseUrl(req);
+    res.json({
+        message: 'BookBuddy PDF Flipbook API',
+        version: '1.0.0',
+        endpoints: {
+            upload: {
+                method: 'POST',
+                url: '/api/upload-pdf',
+                fieldName: 'bookbuddy',
+                description: 'Upload a PDF file'
+            },
+            health: {
+                method: 'GET',
+                url: '/api/health',
+                description: 'Server health check'
+            },
+            test: {
+                method: 'GET',
+                url: '/api/test',
+                description: 'Test endpoint'
+            },
+            files: {
+                method: 'GET',
+                url: '/api/files',
+                description: 'List uploaded files'
+            },
+            download: {
+                method: 'GET',
+                url: '/api/download/:filename',
+                description: 'Download a file'
+            },
+            publicFiles: {
+                method: 'GET',
+                url: '/public/{filename}',
+                description: 'Access uploaded files directly'
+            }
+        },
+        instructions: 'Use POST /api/upload-pdf with FormData containing a PDF file in field "bookbuddy"'
+    });
+});
+
+// 404 Handler
+app.use((req, res) => {
+    const baseUrl = getBaseUrl(req);
     res.status(404).json({
         success: false,
-        message: 'Endpoint not found. Available endpoints: /api/upload-pdf, /api/health, /api/test'
+        message: 'Endpoint not found',
+        requestedUrl: req.url,
+        baseUrl: baseUrl,
+        availableEndpoints: [
+            'GET /',
+            'GET /api/health',
+            'GET /api/test',
+            'GET /api/files',
+            'POST /api/upload-pdf',
+            'GET /api/download/:filename',
+            'GET /public/{filename}'
+        ]
     });
 });
 
-// --- Error Handling Middleware ---
+// Error Handling Middleware
 app.use((err, req, res, next) => {
     console.error('Server error:', err);
     res.status(500).json({
         success: false,
         message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? err.message : undefined
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
 });
 
-// --- Server Start ---
+// Start Server
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📁 Upload directory: ${UPLOAD_DIR}`);
-    console.log(`🌐 Server Base URL: ${SERVER_BASE_URL}`);
-    console.log(`📤 Upload endpoint: ${SERVER_BASE_URL.replace('/public/', '')}/api/upload-pdf`);
-    console.log(`💪 Health check: ${SERVER_BASE_URL.replace('/public/', '')}/api/health`);
-    console.log(`🔍 Test endpoint: ${SERVER_BASE_URL.replace('/public/', '')}/api/test`);
-    console.log(`🎯 CORS enabled for:`);
-    console.log(`   - https://flip-book-frontend.vercel.app`);
-    console.log(`   - https://flip-book-frontend-byswtmnk6-book-buddys-projects-7b4dd408.vercel.app`);
-    console.log(`   - http://localhost:5173`);
+    console.log(`🌐 Local URL: http://localhost:${PORT}`);
+    console.log(`📤 Upload endpoint: http://localhost:${PORT}/api/upload-pdf`);
+    console.log(`💪 Health check: http://localhost:${PORT}/api/health`);
+    console.log(`🔗 Public files: http://localhost:${PORT}/public/`);
+    console.log(`📋 File list: http://localhost:${PORT}/api/files`);
 });

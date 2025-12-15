@@ -7,15 +7,11 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 // Set up PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-// Replace these lines in your frontend:
-// const UPLOAD_API_ENDPOINT = 'http://localhost:5000/api/upload-pdf';
-// const FRONTEND_BASE_URL = 'http://localhost:5173';
-
-// With these updated lines:
+// Backend API endpoints
 const UPLOAD_API_ENDPOINT = 'https://flip-book-backend.vercel.app/api/upload-pdf';
-const FRONTEND_BASE_URL = 'https://flip-book-frontend.vercel.app';
+const FRONTEND_BASE_URL = window.location.origin;
 
-// Also, update your getInitialFile function:
+// Get initial file from URL query parameter
 const getInitialFile = () => {
     const params = new URLSearchParams(window.location.search);
     const filename = params.get('file'); 
@@ -23,7 +19,6 @@ const getInitialFile = () => {
     if (filename) {
         return {
             filename: filename,
-            // Point to the public folder on your Vercel backend
             publicFileUrl: `https://flip-book-backend.vercel.app/public/${filename}`,
             shareableUrl: `${FRONTEND_BASE_URL}/?file=${filename}` 
         };
@@ -31,9 +26,7 @@ const getInitialFile = () => {
     return null;
 };
 
-// ----------------------------------------------------------------------
-// 1. Single Page Component (Portrait View)
-// ----------------------------------------------------------------------
+// Single Page Component
 const FlipPage = React.forwardRef((props, ref) => {
     const { pageNumber, width, height } = props; 
     
@@ -70,9 +63,7 @@ const FlipPage = React.forwardRef((props, ref) => {
 
 FlipPage.displayName = 'FlipPage';
 
-// ----------------------------------------------------------------------
-// 2. Main Flipbook Component
-// ----------------------------------------------------------------------
+// Main Flipbook Component
 function Flipbook() {
     const [numPages, setNumPages] = useState(null);
     const [pdfData, setPdfData] = useState(null); 
@@ -93,20 +84,15 @@ function Flipbook() {
         const viewportWidth = window.innerWidth * 0.9;
         const viewportHeight = window.innerHeight * 0.8;
         
-        // Portrait aspect ratio (A4: 0.707)
         const portraitRatio = 0.707;
-        
-        // Calculate for single page portrait view
         let pageWidth = Math.min(viewportWidth, 800);
         let pageHeight = pageWidth / portraitRatio;
         
-        // If too tall for viewport
         if (pageHeight > viewportHeight) {
             pageHeight = viewportHeight;
             pageWidth = pageHeight * portraitRatio;
         }
         
-        // Minimum sizes
         if (pageWidth < 400) pageWidth = 400;
         if (pageHeight < 500) pageHeight = 500;
         
@@ -129,7 +115,7 @@ function Flipbook() {
         };
     }, [calculateDimensions]);
 
-    // --- File Upload Function ---
+    // File Upload Function
     const uploadPdfToServer = async (file) => {
         setError(null);
         setNumPages(null); 
@@ -138,7 +124,7 @@ function Flipbook() {
         setIsUploading(true);
         
         const formData = new FormData();
-        formData.append('bookbuddy', file); 
+        formData.append('bookbuddy', file);
 
         try {
             const response = await fetch(UPLOAD_API_ENDPOINT, {
@@ -147,7 +133,8 @@ function Flipbook() {
             });
 
             if (!response.ok) {
-                throw new Error('Upload failed');
+                const errorData = await response.json();
+                throw new Error(errorData.message || 'Upload failed');
             }
 
             const data = await response.json();
@@ -161,14 +148,14 @@ function Flipbook() {
 
         } catch (err) {
             console.error('Upload error:', err);
-            setError('Failed to upload PDF. Please try again.');
+            setError(err.message || 'Failed to upload PDF. Please try again.');
             setPdfData(null); 
         } finally {
             setIsUploading(false); 
         }
     };
 
-    // --- Event Handlers ---
+    // Event Handlers
     const handleFileChange = (event) => {
         const file = event.target.files[0];
         
@@ -210,7 +197,7 @@ function Flipbook() {
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
-    // --- Initial Load ---
+    // Initial Load
     useEffect(() => {
         const fileData = getInitialFile();
         setInitialLoadData(fileData); 
@@ -220,7 +207,7 @@ function Flipbook() {
         }
     }, []); 
 
-    // --- Derived States ---
+    // Derived States
     const isLoading = isUploading;
     const isReady = pdfData !== null && numPages !== null && error === null;
     const isIdle = pdfData === null && numPages === null && error === null && !isUploading && !isSharedView;
@@ -230,7 +217,7 @@ function Flipbook() {
     return (
         <div className={isSharedView ? 'min-h-screen bg-white' : 'min-h-screen bg-black'}>
             
-            {/* Top Header - Black & White Theme */}
+            {/* Top Header */}
             {!isSharedView && (
                 <div className="border-b border-gray-300 py-4 px-6">
                     <div className="max-w-6xl mx-auto">
@@ -388,10 +375,6 @@ function Flipbook() {
                             {/* Single Page Portrait Flipbook */}
                             {isReady && numPages > 0 && (
                                 <div>
-                                    {/* <div className="mb-4 text-center">
-                                        <p className="text-black">Click or drag to flip pages</p>
-                                    </div> */}
-                                    
                                     <HTMLFlipBook 
                                         width={width} 
                                         height={height}
@@ -422,7 +405,6 @@ function Flipbook() {
                                     
                                     <div className="mt-4 text-center text-gray-600">
                                         <p>Page {numPages ? `1 of ${numPages}` : 'Loading...'}</p>
-                                        {/* <p className="text-sm mt-1">Flip the page edges to navigate</p> */}
                                     </div>
                                 </div>
                             )}
@@ -433,34 +415,7 @@ function Flipbook() {
                 {/* Initial State - No PDF Uploaded */}
                 {isIdle && !isSharedView && !pdfData && (
                     <div className="text-center py-20">
-                        {/* <div className="max-w-md mx-auto border border-gray-300 p-8 rounded-lg">
-                            <div className="mb-6">
-                                <h2 className="text-2xl font-bold text-white mb-4">BOOKBUDDY</h2>
-                                <p className="text-gray-600">Portrait PDF Flipbook Viewer</p>
-                            </div>
-                            
-                            <div className="space-y-3 mb-8 text-left">
-                                <div className="border border-gray-300 p-3">
-                                    <p className="text-black font-medium">Single Page View</p>
-                                    <p className="text-gray-600 text-sm">View PDFs in clean portrait mode</p>
-                                </div>
-                                <div className="border border-gray-300 p-3">
-                                    <p className="text-black font-medium">Black & White Theme</p>
-                                    <p className="text-gray-600 text-sm">Clean, distraction-free interface</p>
-                                </div>
-                                <div className="border border-gray-300 p-3">
-                                    <p className="text-black font-medium">Easy Sharing</p>
-                                    <p className="text-gray-600 text-sm">Generate shareable links</p>
-                                </div>
-                            </div>
-                            
-                            <button
-                                onClick={handleUploadClick}
-                                className="w-full py-4 bg-black text-white border border-black rounded text-lg hover:bg-gray-800"
-                            >
-                                Upload PDF to Begin
-                            </button>
-                        </div> */}
+                        {/* Empty state - you can add content here */}
                     </div>
                 )}
             </div>
@@ -471,7 +426,6 @@ function Flipbook() {
                     <div className="flex flex-col md:flex-row justify-between items-center">
                         <div>
                             <p className="text-gray-600 font-bold">BOOKBUDDY</p>
-                            
                         </div>
                         <div className="mt-2 md:mt-0">
                            <p className="text-gray-600 text-sm">Portrait PDF Flipbook Viewer</p>
