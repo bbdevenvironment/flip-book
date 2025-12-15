@@ -7,11 +7,15 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 // Set up PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-// --- Configuration ---
-const UPLOAD_API_ENDPOINT = 'http://localhost:5000/api/upload-pdf'; 
-const FRONTEND_BASE_URL = 'http://localhost:5173'; 
+// Replace these lines in your frontend:
+// const UPLOAD_API_ENDPOINT = 'http://localhost:5000/api/upload-pdf';
+// const FRONTEND_BASE_URL = 'http://localhost:5173';
 
-// --- Helper Functions ---
+// With these updated lines:
+const UPLOAD_API_ENDPOINT = 'https://flip-book-backend.vercel.app/api/upload-pdf';
+const FRONTEND_BASE_URL = 'https://flip-book-frontend.vercel.app';
+
+// Also, update your getInitialFile function:
 const getInitialFile = () => {
     const params = new URLSearchParams(window.location.search);
     const filename = params.get('file'); 
@@ -19,7 +23,8 @@ const getInitialFile = () => {
     if (filename) {
         return {
             filename: filename,
-            publicFileUrl: `http://localhost:5000/public/${filename}`,
+            // Point to the public folder on your Vercel backend
+            publicFileUrl: `https://flip-book-backend.vercel.app/public/${filename}`,
             shareableUrl: `${FRONTEND_BASE_URL}/?file=${filename}` 
         };
     }
