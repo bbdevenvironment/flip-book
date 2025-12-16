@@ -1,22 +1,24 @@
+// server.js (Express Backend)
+
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
-// const fs = require('fs'); // <--- Removed: Not reliable in serverless environment
+// Vercel Blob SDK for cloud storage
+const { put } = require('@vercel/blob'); 
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ********************************************
-// FIX: Use memoryStorage for serverless functions
+// SERVERLESS FILE STORAGE CONFIGURATION
+// Multer uses memoryStorage, not disk storage, to prevent Vercel crashes.
 // ********************************************
 const storage = multer.memoryStorage();
 const upload = multer({ 
     storage: storage,
     fileFilter: (req, file, cb) => {
-        console.log(`Received file: ${file.originalname}, type: ${file.mimetype}`);
         if (file.mimetype !== 'application/pdf') {
-            console.log('Rejected: Not a PDF file');
             return cb(new Error('Only PDF files are allowed!'), false);
         }
         cb(null, true);
@@ -27,20 +29,19 @@ const upload = multer({ 
 });
 // ********************************************
 
-// Define upload directory (Keep for path logic, but actual writes are removed)
-// const UPLOAD_DIR = path.join(__dirname, 'uploads');
-// if (!fs.existsSync(UPLOAD_DIR)) {
-//     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-//     console.log(`Created upload directory: ${UPLOAD_DIR}`);
-// }
+// Define your frontend URL dynamically from the environment
+// NOTE: Ensure FRONTEND_URL is set in Vercel environment variables or defaults to your deployment.
+const FRONTEND_BASE_URL = process.env.FRONTEND_URL || 'https://flip-book-frontend.vercel.app'; 
+const CORS_ALLOWED_ORIGINS = [
+    FRONTEND_BASE_URL,
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://flip-book-frontend.vercel.app' 
+];
 
 // Configure CORS
 const corsOptions = {
-  origin: [
-    'https://flip-book-frontend.vercel.app',
-    'http://localhost:5173',
-    'http://localhost:3000'
-  ],
+  origin: CORS_ALLOWED_ORIGINS,
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS']
 };
@@ -49,192 +50,112 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ********************************************
-// Removed: Serving uploaded files publicly - needs external storage (e.g., S3)
-// app.use('/public', express.static(UPLOAD_DIR, ...));
-// ********************************************
-
-// Log all requests
-app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
-    next();
-});
-
-// Helper function to get base URL
+// Helper function to get base URL (kept for consistency with other endpoints)
 const getBaseUrl = (req) => {
-    // For production environments (Vercel, Render, etc.)
     if (process.env.VERCEL_URL) {
         return `https://${process.env.VERCEL_URL}`;
     }
-    // Fallback for development
     const protocol = req.protocol;
     const host = req.get('host');
     return `${protocol}://${host}`;
 };
 
-
-// Health Check Endpoint
+// Health Check Endpoint (For monitoring deployment status)
 app.get('/api/health', (req, res) => {
-    const baseUrl = getBaseUrl(req);
-    res.json({ 
+    res.json({ 
         status: 'OK', 
-        message: 'BookBuddy PDF Flipbook Server is running (Serverless Mode)',
-        timestamp: new Date().toISOString(),
-        baseUrl: baseUrl,
-        environment: process.env.NODE_ENV || 'development',
-        // Removed: uploadDir
-        endpoints: {
-            upload: `${baseUrl}/api/upload-pdf`,
-            // Removed: publicFiles
-        }
+        message: 'BookBuddy Vercel Blob Server is running.',
     });
 });
 
-// Test Endpoint
-app.get('/api/test', (req, res) => {
-    const baseUrl = getBaseUrl(req);
-    res.json({
-        message: 'BookBuddy Backend is operational',
-        serverTime: new Date().toISOString(),
-        baseUrl: baseUrl,
-        uploadEndpoint: `${baseUrl}/api/upload-pdf`,
-        // Removed: publicFilesUrl
-        // Removed: uploadDirectory, availableFiles
-    });
-});
-
-// Removed: List uploaded files endpoint
-
-// File upload endpoint
+// ********************************************
+// MAIN UPLOAD ENDPOINT
+// ********************************************
 app.post('/api/upload-pdf', (req, res) => {
-    console.log('Upload request received');
     
-    // Handle the upload
-    upload.single('bookbuddy')(req, res, (err) => {
+    // Use Multer to parse the file into req.file.buffer
+    upload.single('bookbuddy')(req, res, async (err) => { 
         if (err) {
-            console.error('Upload error:', err);
-            
-            if (err instanceof multer.MulterError) {
-                if (err.code === 'LIMIT_FILE_SIZE') {
-                    return res.status(400).json({
-                        success: false,
-                        message: 'File size too large. Maximum size is 50MB.'
-                    });
-                }
-                return res.status(400).json({
-                    success: false,
-                    message: `Upload error: ${err.message}`
-                });
-            }
-            return res.status(400).json({
-                success: false,
-                message: err.message
-            });
+            const errorMessage = err.message || 'File upload failed.';
+            console.error('Upload error:', errorMessage);
+            return res.status(400).json({ success: false, message: errorMessage });
         }
 
         if (!req.file) {
-            console.log('No file in request');
             return res.status(400).json({ 
                 success: false, 
-                message: 'No PDF file uploaded. Make sure to use field name "bookbuddy" in FormData.' 
+                message: 'No PDF file uploaded. Field name must be "bookbuddy".' 
             });
         }
 
-        // ********************************************
-        // FIX: The following lines are MOCKED to simulate a successful cloud upload
-        // In a real app, you would upload req.file.buffer to S3 here
-        // The filename and public URL must be generated by the cloud service.
-        // ********************************************
-        const generatedFileName = `${path.parse(req.file.originalname).name.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}.pdf`;
+        const file = req.file;
+        let blob;
+
+        try {
+            // Create a safe and unique filename
+            const originalName = path.parse(file.originalname).name;
+            const extension = path.extname(file.originalname);
+            const safeName = originalName.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 50);
+            const fileName = `${safeName}-${Date.now()}${extension}`;
+
+            // Upload the file buffer to Vercel Blob
+            blob = await put(fileName, file.buffer, {
+                access: 'public', // Set access to public
+                contentType: file.mimetype,
+                addRandomSuffix: false 
+            });
+
+        } catch (blobError) {
+            console.error('Vercel Blob Upload Failed:', blobError);
+            return res.status(500).json({
+                success: false,
+                message: 'Failed to save file to cloud storage. Check BLOB_READ_WRITE_TOKEN.'
+            });
+        }
         
-        // This publicFileUrl must point to your *actual* cloud storage location (e.g., S3 URL)
-        // I'm using the original Vercel URL structure as a placeholder.
-        const baseUrl = getBaseUrl(req);
-        const publicFileUrl = `${baseUrl}/public/${generatedFileName}`;
-        // ********************************************
-
-        console.log('File received in memory successfully:', {
-            filename: generatedFileName,
-            originalname: req.file.originalname,
-            size: req.file.size,
-            publicFileUrl: publicFileUrl
-        });
-
+        // Success response with the permanent public URL and the filename (ID)
         res.json({
             success: true,
             message: 'File uploaded successfully.',
-            filename: generatedFileName,
-            originalname: req.file.originalname,
-            size: req.file.size,
-            publicFileUrl: publicFileUrl,
-            // downloadUrl: `${baseUrl}/api/download/${generatedFileName}`, // Removed download
-            shareableUrl: `[FRONTEND_URL]/?file=${generatedFileName}` // Placeholder for frontend URL
+            filename: blob.pathname, 
+            publicFileUrl: blob.url, // This is the permanent URL for react-pdf
+            shareableUrl: `${FRONTEND_BASE_URL}/?file=${blob.pathname}` // URL for sharing
         });
     });
 });
+// ********************************************
 
-// Removed: Download endpoint
-
-// Root endpoint (Updated)
+// Root endpoint
 app.get('/', (req, res) => {
-    const baseUrl = getBaseUrl(req);
-    res.json({
-        message: 'BookBuddy PDF Flipbook API (Serverless)',
-        version: '1.1.0',
-        endpoints: {
-            upload: {
-                method: 'POST',
-                url: '/api/upload-pdf',
-                fieldName: 'bookbuddy',
-                description: 'Upload a PDF file'
-            },
-            health: {
-                method: 'GET',
-                url: '/api/health',
-                description: 'Server health check'
-            },
-            test: {
-                method: 'GET',
-                url: '/api/test',
-                description: 'Test endpoint'
-            },
-        },
-        instructions: 'Switch to a persistent cloud storage solution (e.g., AWS S3) for production.'
-    });
+    res.json({
+        message: 'BookBuddy PDF Flipbook API (Vercel Blob Integrated)',
+        endpoints: {
+            upload: 'POST /api/upload-pdf'
+        }
+    });
 });
 
-
-// 404 Handler (Updated)
+// 404 Handler
 app.use((req, res) => {
-    const baseUrl = getBaseUrl(req);
-    res.status(404).json({
-        success: false,
-        message: 'Endpoint not found',
-        requestedUrl: req.url,
-        baseUrl: baseUrl,
-        availableEndpoints: [
-            'GET /',
-            'GET /api/health',
-            'GET /api/test',
-            'POST /api/upload-pdf',
-        ]
-    });
+    res.status(404).json({
+        success: false,
+        message: 'Endpoint not found',
+        requestedUrl: req.url,
+    });
 });
 
 // Error Handling Middleware
 app.use((err, req, res, next) => {
-    console.error('Server error:', err);
-    res.status(500).json({
-        success: false,
-        message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? err.message : undefined,
-        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
-    });
+    console.error('Server error:', err);
+    res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    });
 });
 
-// Start Server (No changes needed for local start)
+
+// Start Server (Used for local development only)
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`🌐 Local URL: http://localhost:${PORT}`);
-    console.log(`📤 Upload endpoint: http://localhost:${PORT}/api/upload-pdf`);
 });
