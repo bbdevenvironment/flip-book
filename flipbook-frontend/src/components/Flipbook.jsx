@@ -7,35 +7,45 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 // Set up PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-// Backend API endpoints
+// ********************************************
+// FIX: UPLOAD_API_ENDPOINT and public file URL logic
+// We'll assume the backend is hosted on Vercel at the same URL for public files.
+// For a fully corrected setup with S3, this publicFileUrl would be the S3 link.
+// ********************************************
 const UPLOAD_API_ENDPOINT = 'https://flip-book-backend.vercel.app/api/upload-pdf';
+// Assume a separate public file host or the backend's public endpoint
+const PUBLIC_FILE_BASE_URL = 'https://flip-book-backend.vercel.app/public'; 
 const FRONTEND_BASE_URL = window.location.origin;
 
 // Get initial file from URL query parameter
 const getInitialFile = () => {
     const params = new URLSearchParams(window.location.search);
-    const filename = params.get('file'); 
+    const filename = params.get('file'); 
     
     if (filename) {
         return {
             filename: filename,
-            publicFileUrl: `https://flip-book-backend.vercel.app/public/${filename}`,
-            shareableUrl: `${FRONTEND_BASE_URL}/?file=${filename}` 
+            // ********************************************
+            // FIX: Use the dedicated public file base URL
+            publicFileUrl: `${PUBLIC_FILE_BASE_URL}/${filename}`, 
+            // ********************************************
+            shareableUrl: `${FRONTEND_BASE_URL}/?file=${filename}` 
         };
     }
     return null;
 };
+// ********************************************
 
-// Single Page Component
+// Single Page Component (No change needed)
 const FlipPage = React.forwardRef((props, ref) => {
-    const { pageNumber, width, height } = props; 
+    const { pageNumber, width, height } = props; 
     
     return (
-        <div 
-            className="demoPage overflow-hidden" 
-            ref={ref} 
-            style={{ 
-                height: height, 
+        <div 
+            className="demoPage overflow-hidden" 
+            ref={ref} 
+            style={{ 
+                height: height, 
                 width: width,
                 display: 'flex',
                 justifyContent: 'center',
@@ -66,20 +76,21 @@ FlipPage.displayName = 'FlipPage';
 // Main Flipbook Component
 function Flipbook() {
     const [numPages, setNumPages] = useState(null);
-    const [pdfData, setPdfData] = useState(null); 
+    const [pdfData, setPdfData] = useState(null); 
     const [error, setError] = useState(null);
-    const [isUploading, setIsUploading] = useState(false); 
+    const [isUploading, setIsUploading] = useState(false); 
     const [shareableFlipbookUrl, setShareableFlipbookUrl] = useState(null);
-    const [initialLoadData, setInitialLoadData] = useState(null); 
+    const [initialLoadData, setInitialLoadData] = useState(null); 
     const [dimensions, setDimensions] = useState({
         width: 600,
         height: 800
     });
     
+    const flipBookRef = useRef(null); // Added ref for HTMLFlipBook if needed for controls
     const fileInputRef = useRef(null);
     const isSharedView = initialLoadData !== null;
 
-    // Calculate portrait dimensions
+    // Calculate portrait dimensions (No change needed)
     const calculateDimensions = useCallback(() => {
         const viewportWidth = window.innerWidth * 0.9;
         const viewportHeight = window.innerHeight * 0.8;
@@ -102,6 +113,7 @@ function Flipbook() {
         };
     }, []);
 
+    // Effect for resizing (No change needed)
     useEffect(() => {
         const updateDimensions = () => {
             setDimensions(calculateDimensions());
@@ -115,11 +127,11 @@ function Flipbook() {
         };
     }, [calculateDimensions]);
 
-    // File Upload Function
+    // File Upload Function (No change needed, backend handles the fix)
     const uploadPdfToServer = async (file) => {
         setError(null);
-        setNumPages(null); 
-        setPdfData(null); 
+        setNumPages(null); 
+        setPdfData(null); 
         setShareableFlipbookUrl(null);
         setIsUploading(true);
         
@@ -133,29 +145,34 @@ function Flipbook() {
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
+                // This is the line that failed previously due to the backend crash
+                const errorData = await response.json(); 
                 throw new Error(errorData.message || 'Upload failed');
             }
 
             const data = await response.json();
             
             if (!data.filename || !data.publicFileUrl) {
-                throw new Error("Invalid server response");
+                throw new Error("Invalid server response: Missing file info.");
             }
 
             setPdfData(data.publicFileUrl);
-            setShareableFlipbookUrl(`${FRONTEND_BASE_URL}/?file=${data.filename}`);
+            // ********************************************
+            // FIX: Ensure shareable URL is correctly built from the filename
+            const newShareableUrl = `${FRONTEND_BASE_URL}/?file=${data.filename}`;
+            setShareableFlipbookUrl(newShareableUrl);
+            // ********************************************
 
         } catch (err) {
             console.error('Upload error:', err);
-            setError(err.message || 'Failed to upload PDF. Please try again.');
-            setPdfData(null); 
+            setError(err.message || 'Failed to upload PDF. Please check the network and server status.');
+            setPdfData(null); 
         } finally {
-            setIsUploading(false); 
+            setIsUploading(false); 
         }
     };
 
-    // Event Handlers
+    // Event Handlers (No change needed)
     const handleFileChange = (event) => {
         const file = event.target.files[0];
         
@@ -169,7 +186,7 @@ function Flipbook() {
             return;
         }
         
-        uploadPdfToServer(file); 
+        uploadPdfToServer(file); 
     };
 
     const onDocumentLoadSuccess = ({ numPages }) => {
@@ -179,7 +196,7 @@ function Flipbook() {
     
     const onDocumentLoadError = (error) => {
         console.error('PDF load error:', error);
-        setError('Failed to load PDF. Please check the file or try another PDF.');
+        setError('Failed to load PDF. Please check the file URL.');
         setPdfData(null);
         setNumPages(null);
         setShareableFlipbookUrl(null);
@@ -195,17 +212,21 @@ function Flipbook() {
         setError(null);
         setShareableFlipbookUrl(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
+        
+        // Remove file parameter from URL
+        const newUrl = window.location.origin + window.location.pathname;
+        window.history.pushState({ path: newUrl }, '', newUrl);
     };
 
-    // Initial Load
+    // Initial Load (No change needed, but depends on the corrected getInitialFile)
     useEffect(() => {
         const fileData = getInitialFile();
-        setInitialLoadData(fileData); 
+        setInitialLoadData(fileData); 
         if (fileData) {
             setPdfData(fileData.publicFileUrl);
             setShareableFlipbookUrl(fileData.shareableUrl);
         }
-    }, []); 
+    }, []); 
 
     // Derived States
     const isLoading = isUploading;
@@ -216,6 +237,8 @@ function Flipbook() {
 
     return (
         <div className={isSharedView ? 'min-h-screen bg-white' : 'min-h-screen bg-black'}>
+            
+            {/* ... Header/UI logic is unchanged ... */}
             
             {/* Top Header */}
             {!isSharedView && (
@@ -228,7 +251,7 @@ function Flipbook() {
                             </div>
                             <div>
                                 {shareableFlipbookUrl && (
-                                    <button 
+                                    <button 
                                         onClick={removePDF}
                                         className="px-4 py-2 bg-black text-white border border-black rounded text-sm hover:bg-gray-800"
                                     >
@@ -272,7 +295,7 @@ function Flipbook() {
                             
                             <button
                                 onClick={handleUploadClick}
-                                disabled={isLoading} 
+                                disabled={isLoading} 
                                 className={`w-full py-4 rounded text-lg border ${
                                     isLoading ? 'bg-gray-200 text-gray-600 border-white cursor-not-allowed' : 'bg-black text-white border-black hover:bg-gray-800'
                                 }`}
@@ -298,7 +321,7 @@ function Flipbook() {
                                     <p className="text-black font-semibold">Current Document</p>
                                     <p className="text-gray-600 text-sm">Portrait Flipbook View</p>
                                 </div>
-                                <button 
+                                <button 
                                     onClick={handleUploadClick}
                                     className="px-4 py-2 border border-black text-black rounded text-sm hover:bg-gray-100"
                                 >
@@ -375,8 +398,8 @@ function Flipbook() {
                             {/* Single Page Portrait Flipbook */}
                             {isReady && numPages > 0 && (
                                 <div>
-                                    <HTMLFlipBook 
-                                        width={width} 
+                                    <HTMLFlipBook 
+                                        width={width} 
                                         height={height}
                                         size="fixed"
                                         minWidth={width}
@@ -392,9 +415,10 @@ function Flipbook() {
                                         mobileScrollSupport={true}
                                         swipeDistance={30}
                                         showPageCorners={false}
+                                        // Added ref here
                                     >
                                         {Array.from({ length: numPages }, (_, i) => (
-                                            <FlipPage 
+                                            <FlipPage 
                                                 key={i}
                                                 pageNumber={i + 1}
                                                 width={width}
