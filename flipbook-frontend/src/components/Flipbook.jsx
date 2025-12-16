@@ -12,24 +12,21 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pd
 // ********************************************
 const DEPLOYED_BACKEND_URL = 'https://flip-book-backend.vercel.app'; 
 const UPLOAD_API_ENDPOINT = `${DEPLOYED_BACKEND_URL}/api/upload-pdf`;
-
 const FRONTEND_BASE_URL = window.location.origin;
 
 // Get initial file from URL query parameter
 const getInitialFile = () => {
-    const params = new URLSearchParams(window.location.search);
-    const filename = params.get('file'); 
-    
-    if (filename) {
-        // We cannot reliably construct the Vercel Blob URL from just the filename (ID).
-        // This design requires a database lookup, which is currently missing.
+    const params = new URLSearchParams(window.location.search);
+    const filename = params.get('file'); 
+    
+    if (filename) {
         return {
             filename: filename,
             publicFileUrl: null, 
             shareableUrl: `${FRONTEND_BASE_URL}/?file=${filename}` 
         };
-    }
-    return null;
+    }
+    return null;
 };
 
 // Single Page Component (No change)
@@ -165,7 +162,7 @@ function Flipbook() {
 
         } catch (err) {
             console.error('Upload error:', err);
-            setError(err.message || 'Failed to upload PDF. Check your backend deployment and CORS settings.');
+            setError(err.message || 'Failed to upload PDF. Check your backend deployment and URL.');
             setPdfData(null); 
         } finally {
             setIsUploading(false); 
@@ -221,12 +218,7 @@ function Flipbook() {
         if (fileData && fileData.filename) {
             setShareableFlipbookUrl(fileData.shareableUrl);
             
-            // NOTE ON SHARING: Since we don't have a database, the frontend cannot 
-            // look up the full Vercel Blob URL from the 'filename' ID alone.
-            // A permanent shared link feature requires a database (like Vercel Postgres) 
-            // to map the 'filename' to the permanent 'publicFileUrl'.
-            
-            // If pdfData is null, display the warning instead of trying to load.
+            // Display warning for missing permanent link lookup
             setError(`Document ID "${fileData.filename}" found in URL, but the file content cannot be loaded. Sharing requires a database to store the permanent Blob URL.`);
         }
     }, []); 
@@ -237,8 +229,6 @@ function Flipbook() {
 
     return (
         <div className={isSharedView ? 'min-h-screen bg-white' : 'min-h-screen bg-black'}>
-            
-            {/* Header/UI Logic remains the same, using derived states */}
             
             {/* Top Header */}
             {!isSharedView && (
@@ -303,7 +293,7 @@ function Flipbook() {
                                 {isLoading ? 'Uploading...' : 'Select PDF File'}
                             </button>
                             
-                            {error && !isSharedView && ( // Display upload errors here
+                            {error && !isSharedView && (
                                 <div className="mt-4 p-3 border border-gray-400 rounded">
                                     <p className='text-black text-center'>{error}</p>
                                 </div>

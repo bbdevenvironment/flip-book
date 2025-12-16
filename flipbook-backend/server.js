@@ -8,11 +8,11 @@ const path = require('path');
 const { put } = require('@vercel/blob'); 
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+// The PORT variable is irrelevant in the Serverless environment
+// const PORT = process.env.PORT || 5000; 
 
 // ********************************************
 // SERVERLESS FILE STORAGE CONFIGURATION
-// Multer uses memoryStorage to keep files in memory (safe for Vercel)
 // ********************************************
 const storage = multer.memoryStorage();
 const upload = multer({ 
@@ -30,7 +30,6 @@ const upload = multer({ 
 // ********************************************
 
 // Define your frontend URL dynamically from the environment
-// Defaults to the deployed frontend URL for safety if env var is missing
 const FRONTEND_BASE_URL = process.env.FRONTEND_URL || 'https://flip-book-frontend.vercel.app'; 
 
 // ********************************************
@@ -38,15 +37,15 @@ const FRONTEND_BASE_URL = process.env.FRONTEND_URL || 'https://flip-book-fronten
 // ********************************************
 const CORS_ALLOWED_ORIGINS = [
     FRONTEND_BASE_URL,
-    'https://flip-book-frontend.vercel.app', // Explicitly allow deployed frontend
-    'http://localhost:5173', // For local Vite/React development
-    'http://localhost:3000' // For local Create-React-App development
+    'https://flip-book-frontend.vercel.app', 
+    'http://localhost:5173', 
+    'http://localhost:3000' 
 ];
 
 const corsOptions = {
   origin: CORS_ALLOWED_ORIGINS,
   credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'] // Important: OPTIONS is for the CORS preflight check
+  methods: ['GET', 'POST', 'OPTIONS'] 
 };
 
 app.use(cors(corsOptions));
@@ -81,33 +80,25 @@ app.post('/api/upload-pdf', (req, res) => {
     
     // Use Multer to parse the file into req.file.buffer
     upload.single('bookbuddy')(req, res, async (err) => { 
-        if (err) {
-            // Handle Multer file size, file type, or other upload errors
-            const errorMessage = err.message || 'File upload failed.';
+        if (err || !req.file) {
+            const errorMessage = err ? err.message : 'No PDF file uploaded. Field name must be "bookbuddy".';
             console.error('Upload error:', errorMessage);
+            // This 400 response is handled correctly by the Serverless function
             return res.status(400).json({ success: false, message: errorMessage });
-        }
-
-        if (!req.file) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'No PDF file uploaded. Field name must be "bookbuddy".' 
-            });
         }
 
         const file = req.file;
         let blob;
 
         try {
-            // Create a safe and unique filename
             const originalName = path.parse(file.originalname).name;
             const extension = path.extname(file.originalname);
             const safeName = originalName.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 50);
             const fileName = `${safeName}-${Date.now()}${extension}`;
 
-            // Upload the file buffer to Vercel Blob (token is picked up automatically from env)
+            // Upload the file buffer to Vercel Blob
             blob = await put(fileName, file.buffer, {
-                access: 'public', // Set access to public
+                access: 'public', 
                 contentType: file.mimetype,
                 addRandomSuffix: false 
             });
@@ -116,7 +107,7 @@ app.post('/api/upload-pdf', (req, res) => {
             console.error('Vercel Blob Upload Failed:', blobError);
             return res.status(500).json({
                 success: false,
-                message: 'Failed to save file to cloud storage. Check BLOB_READ_WRITE_TOKEN and Vercel Blob connection.'
+                message: 'Failed to save file to cloud storage. Check BLOB_READ_WRITE_TOKEN.'
             });
         }
         
@@ -125,8 +116,8 @@ app.post('/api/upload-pdf', (req, res) => {
             success: true,
             message: 'File uploaded successfully.',
             filename: blob.pathname, 
-            publicFileUrl: blob.url, // This is the permanent URL for react-pdf
-            shareableUrl: `${FRONTEND_BASE_URL}/?file=${blob.pathname}` // URL for sharing
+            publicFileUrl: blob.url, 
+            shareableUrl: `${FRONTEND_BASE_URL}/?file=${blob.pathname}` 
         });
     });
 });
@@ -163,10 +154,8 @@ app.use((err, req, res, next) => {
 });
 
 
-// Start Server (Used for local development only)
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-});
-
-// IMPORTANT: For Vercel, this file must export the app instance.
+// ********************************************
+// VERCEL FIX: Export the app instance instead of using app.listen()
+// This is the CRITICAL change for Vercel Serverless.
+// ********************************************
 module.exports = app;
