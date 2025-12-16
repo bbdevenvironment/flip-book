@@ -4,7 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
-// Import Vercel Blob and Vercel Postgres (relies on POSTGRES_URL env var)
+// Vercel Blob and Vercel Postgres SDK imports
 const { put } = require('@vercel/blob'); 
 const { sql } = require('@vercel/postgres'); 
 
@@ -13,6 +13,7 @@ const app = express();
 // ********************************************
 // SERVERLESS CONFIGURATION
 // ********************************************
+// Use memoryStorage for Vercel Serverless compatibility
 const storage = multer.memoryStorage();
 const upload = multer({ 
     storage: storage,
@@ -47,7 +48,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ********************************************
-// MAIN UPLOAD ENDPOINT (Saves link to DB)
+// MAIN UPLOAD ENDPOINT (Saves link to DB for permanent sharing)
 // ********************************************
 app.post('/api/upload-pdf', (req, res) => {
     
@@ -74,7 +75,7 @@ app.post('/api/upload-pdf', (req, res) => {
                 addRandomSuffix: false 
             });
 
-            // 2. SAVE link to Postgres (using POSTGRES_URL/Neon connection)
+            // 2. SAVE link to Postgres (Permanent Storage)
             await sql`
                 INSERT INTO flipbook_links (filename, blob_url) 
                 VALUES (${filename}, ${blob.url})
@@ -83,7 +84,7 @@ app.post('/api/upload-pdf', (req, res) => {
 
         } catch (error) {
             console.error('Upload or Database Error:', error);
-            // In a production app, you would add logic here to delete the Blob if the DB save fails.
+            // If the database fails, return a 500 error.
             return res.status(500).json({
                 success: false,
                 message: 'Failed to finalize permanent link. Database error.'
@@ -136,10 +137,9 @@ app.get('/api/get-pdf-url', async (req, res) => {
 });
 // ********************************************
 
-// Health Check Endpoint
+// Health Check Endpoint (Tests database connection)
 app.get('/api/health', async (req, res) => {
     try {
-        // Test database connection by selecting a simple constant
         await sql`SELECT 1;`; 
         res.json({ 
             status: 'OK', 
@@ -155,7 +155,37 @@ app.get('/api/health', async (req, res) => {
     }
 });
 
+// Root endpoint
+app.get('/', (req, res) => {
+    res.json({
+        message: 'BookBuddy PDF Flipbook API (Vercel Blob Integrated)',
+        endpoints: {
+            upload: 'POST /api/upload-pdf',
+            lookup: 'GET /api/get-pdf-url?filename={id}',
+            health: 'GET /api/health'
+        }
+    });
+});
 
-// ... (Root endpoint, 404, and Error Handling remain the same) ...
+// 404 Handler
+app.use((req, res) => {
+    res.status(404).json({
+        success: false,
+        message: 'Endpoint not found',
+        requestedUrl: req.url,
+    });
+});
 
+// Error Handling Middleware
+app.use((err, req, res, next) => {
+    console.error('Server error:', err);
+    res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: process.env.NODE_ENV === 'development' ? err.message : undefined,
+    });
+});
+
+
+// VERCEL FIX: Export the app instance for Serverless compatibility
 module.exports = app;
