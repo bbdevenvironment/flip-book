@@ -1,5 +1,3 @@
-// Flipbook.jsx (React Frontend)
-
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import HTMLFlipBook from 'react-pageflip';
 import { Document, Page, pdfjs } from 'react-pdf';
@@ -14,6 +12,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pd
 // ********************************************
 const DEPLOYED_BACKEND_URL = 'https://flip-book-backend.vercel.app'; 
 const UPLOAD_API_ENDPOINT = `${DEPLOYED_BACKEND_URL}/api/upload-pdf`;
+const LOOKUP_API_ENDPOINT = `${DEPLOYED_BACKEND_URL}/api/get-pdf-url`;
 const FRONTEND_BASE_URL = window.location.origin;
 
 // Get initial file from URL query parameter
@@ -22,6 +21,7 @@ const getInitialFile = () => {
     const filename = params.get('file'); 
     
     if (filename) {
+        // We only return the filename (ID). The public URL must be fetched via API.
         return {
             filename: filename,
             publicFileUrl: null, 
@@ -120,7 +120,7 @@ function Flipbook() {
         };
     }, [calculateDimensions]);
 
-    // File Upload Function - Handles API call and Vercel Blob URL extraction
+    // File Upload Function (Correctly sets pdfData with Blob URL on success)
     const uploadPdfToServer = async (file) => {
         setError(null);
         setNumPages(null); 
@@ -164,7 +164,7 @@ function Flipbook() {
 
         } catch (err) {
             console.error('Upload error:', err);
-            setError(err.message || 'Failed to upload PDF. Check your backend deployment and URL.');
+            setError(err.message || 'Failed to upload PDF. Check your backend deployment.');
             setPdfData(null); 
         } finally {
             setIsUploading(false); 
@@ -212,18 +212,52 @@ function Flipbook() {
         window.history.pushState({ path: newUrl }, '', newUrl);
     };
 
-    // Initial Load
+    // ********************************************
+    // CORRECTED useEffect Hook for Permanent Sharing Lookup
+    // ********************************************
     useEffect(() => {
         const fileData = getInitialFile();
         setInitialLoadData(fileData); 
         
         if (fileData && fileData.filename) {
             setShareableFlipbookUrl(fileData.shareableUrl);
-            
-            // Display warning for missing permanent link lookup
-            setError(`Document ID "${fileData.filename}" found in URL, but the file content cannot be loaded. Sharing requires a database to store the permanent Blob URL.`);
+            setError(null); // Clear previous errors initially
+            setPdfData(null); 
+
+            const fetchSharedPdf = async (filename) => {
+                setError("Loading shared document..."); // Set loading state
+                try {
+                    // Call the new backend endpoint to get the permanent Blob URL
+                    const response = await fetch(`${LOOKUP_API_ENDPOINT}?filename=${filename}`);
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.message || `File lookup failed with status ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    
+                    if (!data.publicFileUrl) {
+                        throw new Error("Permanent link found, but the Blob URL is missing in the database record.");
+                    }
+
+                    // SUCCESS: Use the permanent Blob URL to load the PDF
+                    setPdfData(data.publicFileUrl); 
+                    setNumPages(null); // Force react-pdf to re-load
+                    setError(null); // Clear the loading/error message
+
+                } catch (err) {
+                    console.error('Shared Link Error:', err);
+                    // Display a clean error for the user
+                    setError(`Error accessing shared link: ${err.message}. Please check if the file still exists.`);
+                    setPdfData(null);
+                }
+            };
+
+            fetchSharedPdf(fileData.filename);
         }
     }, []); 
+    // ********************************************
 
     // Derived States
     const isLoading = isUploading;
@@ -233,6 +267,7 @@ function Flipbook() {
         <div className={isSharedView ? 'min-h-screen bg-white' : 'min-h-screen bg-black'}>
             
             {/* Top Header */}
+            {/* ... (Header remains the same) ... */}
             {!isSharedView && (
                 <div className="border-b border-gray-300 py-4 px-6">
                     <div className="max-w-6xl mx-auto">
@@ -418,7 +453,7 @@ function Flipbook() {
                             <p className="text-red-700 font-semibold mb-2">Error / Missing File</p>
                             <p className="text-red-600">{error}</p>
                             {isSharedView && (
-                                <p className="text-red-600 mt-3 text-sm">**Hint:** For permanent sharing, consider adding a database (like Vercel Postgres) to map the URL ID to the Vercel Blob file link.</p>
+                                <p className="text-red-600 mt-3 text-sm">Status: Attempted lookup for permanent link.</p>
                             )}
                         </div>
                     </div>
