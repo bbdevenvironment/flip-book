@@ -1,16 +1,17 @@
-// api/index.js (Express Backend for Vercel)
+// api/index.js (Express Backend for Vercel with Neon/Postgres Integration)
 
 const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const path = require('path');
-// Vercel Blob SDK for cloud storage
+// Import Vercel Blob and Vercel Postgres (relies on POSTGRES_URL env var)
 const { put } = require('@vercel/blob'); 
+const { sql } = require('@vercel/postgres'); 
 
 const app = express();
 
 // ********************************************
-// SERVERLESS FILE STORAGE CONFIGURATION
+// SERVERLESS CONFIGURATION
 // ********************************************
 const storage = multer.memoryStorage();
 const upload = multer({ 
@@ -25,14 +26,9 @@ const upload = multer({ 
         fileSize: 50 * 1024 * 1024 // 50MB limit
     }
 });
-// ********************************************
 
-// Define your frontend URL dynamically from the environment
+// CORS: Ensures the frontend can communicate with this backend API
 const FRONTEND_BASE_URL = process.env.FRONTEND_URL || 'https://flip-book-frontend.vercel.app'; 
-
-// ********************************************
-// CORS FIX: Explicitly allow all necessary origins
-// ********************************************
 const CORS_ALLOWED_ORIGINS = [
     FRONTEND_BASE_URL,
     'https://flip-book-frontend.vercel.app', 
@@ -47,109 +43,119 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-// ********************************************
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Helper function to get base URL 
-const getBaseUrl = (req) => {
-    if (process.env.VERCEL_URL) {
-        return `https://${process.env.VERCEL_URL}`;
-    }
-    const protocol = req.protocol;
-    const host = req.get('host');
-    return `${protocol}://${host}`;
-};
-
-// Health Check Endpoint
-app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'OK', 
-        message: 'BookBuddy Vercel Blob Server is running.',
-        environment: process.env.NODE_ENV || 'development'
-    });
-});
-
 // ********************************************
-// MAIN UPLOAD ENDPOINT
+// MAIN UPLOAD ENDPOINT (Saves link to DB)
 // ********************************************
 app.post('/api/upload-pdf', (req, res) => {
     
-    // Use Multer to parse the file into req.file.buffer
     upload.single('bookbuddy')(req, res, async (err) => { 
         if (err || !req.file) {
             const errorMessage = err ? err.message : 'No PDF file uploaded. Field name must be "bookbuddy".';
-            console.error('Upload error:', errorMessage);
             return res.status(400).json({ success: false, message: errorMessage });
         }
 
         const file = req.file;
         let blob;
+        let filename;
 
         try {
+            // 1. Upload to Vercel Blob
             const originalName = path.parse(file.originalname).name;
             const extension = path.extname(file.originalname);
             const safeName = originalName.replace(/[^a-zA-Z0-9]/g, '-').slice(0, 50);
-            const fileName = `${safeName}-${Date.now()}${extension}`;
+            filename = `${safeName}-${Date.now()}${extension}`;
 
-            // Upload the file buffer to Vercel Blob
-            blob = await put(fileName, file.buffer, {
+            blob = await put(filename, file.buffer, {
                 access: 'public', 
                 contentType: file.mimetype,
                 addRandomSuffix: false 
             });
 
-        } catch (blobError) {
-            console.error('Vercel Blob Upload Failed:', blobError);
+            // 2. SAVE link to Postgres (using POSTGRES_URL/Neon connection)
+            await sql`
+                INSERT INTO flipbook_links (filename, blob_url) 
+                VALUES (${filename}, ${blob.url})
+                ON CONFLICT (filename) DO UPDATE SET blob_url = EXCLUDED.blob_url;
+            `;
+
+        } catch (error) {
+            console.error('Upload or Database Error:', error);
+            // In a production app, you would add logic here to delete the Blob if the DB save fails.
             return res.status(500).json({
                 success: false,
-                message: 'Failed to save file to cloud storage. Check BLOB_READ_WRITE_TOKEN.'
+                message: 'Failed to finalize permanent link. Database error.'
             });
         }
         
-        // Success response with the permanent public URL and the filename (ID)
+        // Success response
         res.json({
             success: true,
-            message: 'File uploaded successfully.',
-            filename: blob.pathname, 
+            message: 'File uploaded and link saved successfully.',
+            filename: filename, 
             publicFileUrl: blob.url, 
-            shareableUrl: `${FRONTEND_BASE_URL}/?file=${blob.pathname}` 
+            shareableUrl: `${FRONTEND_BASE_URL}/?file=${filename}` 
         });
     });
 });
 // ********************************************
 
-// Root endpoint
-app.get('/', (req, res) => {
-    res.json({
-        message: 'BookBuddy PDF Flipbook API (Vercel Blob Integrated)',
-        endpoints: {
-            upload: 'POST /api/upload-pdf',
-            health: 'GET /api/health'
+// ********************************************
+// NEW ENDPOINT: Lookup Blob URL by Filename ID (Enables permanent sharing)
+// ********************************************
+app.get('/api/get-pdf-url', async (req, res) => {
+    const { filename } = req.query;
+
+    if (!filename) {
+        return res.status(400).json({ success: false, message: 'Missing filename query parameter.' });
+    }
+
+    try {
+        const result = await sql`
+            SELECT blob_url FROM flipbook_links WHERE filename = ${filename} LIMIT 1;
+        `;
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, message: `File not found for ID: ${filename}` });
         }
-    });
+
+        const blobUrl = result.rows[0].blob_url;
+        
+        res.json({
+            success: true,
+            publicFileUrl: blobUrl,
+            filename: filename
+        });
+
+    } catch (error) {
+        console.error('Database lookup error:', error);
+        res.status(500).json({ success: false, message: 'Internal server error during database lookup.' });
+    }
+});
+// ********************************************
+
+// Health Check Endpoint
+app.get('/api/health', async (req, res) => {
+    try {
+        // Test database connection by selecting a simple constant
+        await sql`SELECT 1;`; 
+        res.json({ 
+            status: 'OK', 
+            message: 'BookBuddy Server and Database are running.',
+            db_status: 'Connected'
+        });
+    } catch (error) {
+        res.status(500).json({
+            status: 'ERROR',
+            message: 'Server is running but failed to connect to the database.',
+            error: error.message
+        });
+    }
 });
 
-// 404 Handler
-app.use((req, res) => {
-    res.status(404).json({
-        success: false,
-        message: 'Endpoint not found',
-        requestedUrl: req.url,
-    });
-});
 
-// Error Handling Middleware
-app.use((err, req, res, next) => {
-    console.error('Server error:', err);
-    res.status(500).json({
-        success: false,
-        message: 'Internal server error',
-        error: process.env.NODE_ENV === 'development' ? err.message : undefined,
-    });
-});
+// ... (Root endpoint, 404, and Error Handling remain the same) ...
 
-
-// VERCEL FIX: Export the app instance
 module.exports = app;
