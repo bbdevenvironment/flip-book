@@ -1,3 +1,5 @@
+// Flipbook.jsx (React Frontend)
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import HTMLFlipBook from 'react-pageflip';
 import { Document, Page, pdfjs } from 'react-pdf';

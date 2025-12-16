@@ -1,4 +1,4 @@
-// server.js (Express Backend for Vercel)
+// api/index.js (Express Backend for Vercel)
 
 const express = require('express');
 const multer = require('multer');
@@ -8,8 +8,6 @@ const path = require('path');
 const { put } = require('@vercel/blob'); 
 
 const app = express();
-// The PORT variable is irrelevant in the Serverless environment
-// const PORT = process.env.PORT || 5000; 
 
 // ********************************************
 // SERVERLESS FILE STORAGE CONFIGURATION
@@ -64,7 +62,7 @@ const getBaseUrl = (req) => {
     return `${protocol}://${host}`;
 };
 
-// Health Check Endpoint (For monitoring deployment status)
+// Health Check Endpoint
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'OK', 
@@ -83,7 +81,6 @@ app.post('/api/upload-pdf', (req, res) => {
         if (err || !req.file) {
             const errorMessage = err ? err.message : 'No PDF file uploaded. Field name must be "bookbuddy".';
             console.error('Upload error:', errorMessage);
-            // This 400 response is handled correctly by the Serverless function
             return res.status(400).json({ success: false, message: errorMessage });
         }
 
@@ -154,8 +151,5 @@ app.use((err, req, res, next) => {
 });
 
 
-// ********************************************
-// VERCEL FIX: Export the app instance instead of using app.listen()
-// This is the CRITICAL change for Vercel Serverless.
-// ********************************************
+// VERCEL FIX: Export the app instance
 module.exports = app;
