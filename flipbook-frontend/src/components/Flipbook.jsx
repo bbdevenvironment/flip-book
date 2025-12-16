@@ -8,35 +8,31 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
 // ********************************************
-// FIX: UPLOAD_API_ENDPOINT and public file URL logic
-// We'll assume the backend is hosted on Vercel at the same URL for public files.
-// For a fully corrected setup with S3, this publicFileUrl would be the S3 link.
+// CRITICAL: REPLACE WITH YOUR ACTUAL DEPLOYED BACKEND URL
 // ********************************************
-const UPLOAD_API_ENDPOINT = 'https://flip-book-backend.vercel.app/api/upload-pdf';
-// Assume a separate public file host or the backend's public endpoint
-const PUBLIC_FILE_BASE_URL = 'https://flip-book-backend.vercel.app/public'; 
+const DEPLOYED_BACKEND_URL = 'https://flip-book-backend.vercel.app'; 
+const UPLOAD_API_ENDPOINT = `${DEPLOYED_BACKEND_URL}/api/upload-pdf`;
+
 const FRONTEND_BASE_URL = window.location.origin;
 
 // Get initial file from URL query parameter
 const getInitialFile = () => {
-    const params = new URLSearchParams(window.location.search);
-    const filename = params.get('file'); 
-    
-    if (filename) {
+    const params = new URLSearchParams(window.location.search);
+    const filename = params.get('file'); 
+    
+    if (filename) {
+        // We cannot reliably construct the Vercel Blob URL from just the filename (ID).
+        // This design requires a database lookup, which is currently missing.
         return {
             filename: filename,
-            // ********************************************
-            // FIX: Use the dedicated public file base URL
-            publicFileUrl: `${PUBLIC_FILE_BASE_URL}/${filename}`, 
-            // ********************************************
+            publicFileUrl: null, 
             shareableUrl: `${FRONTEND_BASE_URL}/?file=${filename}` 
         };
-    }
-    return null;
+    }
+    return null;
 };
-// ********************************************
 
-// Single Page Component (No change needed)
+// Single Page Component (No change)
 const FlipPage = React.forwardRef((props, ref) => {
     const { pageNumber, width, height } = props; 
     
@@ -86,11 +82,10 @@ function Flipbook() {
         height: 800
     });
     
-    const flipBookRef = useRef(null); // Added ref for HTMLFlipBook if needed for controls
     const fileInputRef = useRef(null);
     const isSharedView = initialLoadData !== null;
 
-    // Calculate portrait dimensions (No change needed)
+    // Calculate dimensions (No change)
     const calculateDimensions = useCallback(() => {
         const viewportWidth = window.innerWidth * 0.9;
         const viewportHeight = window.innerHeight * 0.8;
@@ -113,7 +108,6 @@ function Flipbook() {
         };
     }, []);
 
-    // Effect for resizing (No change needed)
     useEffect(() => {
         const updateDimensions = () => {
             setDimensions(calculateDimensions());
@@ -127,7 +121,7 @@ function Flipbook() {
         };
     }, [calculateDimensions]);
 
-    // File Upload Function (No change needed, backend handles the fix)
+    // File Upload Function - Handles API call and Vercel Blob URL extraction
     const uploadPdfToServer = async (file) => {
         setError(null);
         setNumPages(null); 
@@ -136,7 +130,7 @@ function Flipbook() {
         setIsUploading(true);
         
         const formData = new FormData();
-        formData.append('bookbuddy', file);
+        formData.append('bookbuddy', file); 
 
         try {
             const response = await fetch(UPLOAD_API_ENDPOINT, {
@@ -145,44 +139,45 @@ function Flipbook() {
             });
 
             if (!response.ok) {
-                // This is the line that failed previously due to the backend crash
-                const errorData = await response.json(); 
-                throw new Error(errorData.message || 'Upload failed');
+                const errorText = await response.text();
+                // Attempt to parse JSON error, fallback to text
+                try {
+                    const errorData = JSON.parse(errorText);
+                    throw new Error(errorData.message || `Upload failed with status ${response.status}`);
+                } catch {
+                    throw new Error(`Upload failed. Server response: ${errorText.substring(0, 100)}`);
+                }
             }
 
             const data = await response.json();
             
             if (!data.filename || !data.publicFileUrl) {
-                throw new Error("Invalid server response: Missing file info.");
+                throw new Error("Invalid server response: Missing file URL or filename.");
             }
 
-            setPdfData(data.publicFileUrl);
-            // ********************************************
-            // FIX: Ensure shareable URL is correctly built from the filename
-            const newShareableUrl = `${FRONTEND_BASE_URL}/?file=${data.filename}`;
-            setShareableFlipbookUrl(newShareableUrl);
-            // ********************************************
+            // SUCCESS: Use the permanent Blob URL returned by the backend
+            setPdfData(data.publicFileUrl); 
+            setShareableFlipbookUrl(`${FRONTEND_BASE_URL}/?file=${data.filename}`); 
+            
+            // Update URL query parameter
+            const newUrl = `${FRONTEND_BASE_URL}/?file=${data.filename}`;
+            window.history.pushState({ path: newUrl }, '', newUrl);
 
         } catch (err) {
             console.error('Upload error:', err);
-            setError(err.message || 'Failed to upload PDF. Please check the network and server status.');
+            setError(err.message || 'Failed to upload PDF. Check your backend deployment and CORS settings.');
             setPdfData(null); 
         } finally {
             setIsUploading(false); 
         }
     };
 
-    // Event Handlers (No change needed)
+    // Event Handlers
     const handleFileChange = (event) => {
         const file = event.target.files[0];
         
-        if (!file) {
-            setError('Please select a file');
-            return;
-        }
-        
-        if (file.type !== 'application/pdf') {
-            setError('Please select a PDF file (.pdf)');
+        if (!file || file.type !== 'application/pdf') {
+            setError('Please select a valid PDF file (.pdf)');
             return;
         }
         
@@ -196,7 +191,7 @@ function Flipbook() {
     
     const onDocumentLoadError = (error) => {
         console.error('PDF load error:', error);
-        setError('Failed to load PDF. Please check the file URL.');
+        setError('Failed to load PDF. Please check the file URL or try another PDF.');
         setPdfData(null);
         setNumPages(null);
         setShareableFlipbookUrl(null);
@@ -213,32 +208,37 @@ function Flipbook() {
         setShareableFlipbookUrl(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
         
-        // Remove file parameter from URL
+        // Clear the URL query parameter
         const newUrl = window.location.origin + window.location.pathname;
         window.history.pushState({ path: newUrl }, '', newUrl);
     };
 
-    // Initial Load (No change needed, but depends on the corrected getInitialFile)
+    // Initial Load
     useEffect(() => {
         const fileData = getInitialFile();
         setInitialLoadData(fileData); 
-        if (fileData) {
-            setPdfData(fileData.publicFileUrl);
+        
+        if (fileData && fileData.filename) {
             setShareableFlipbookUrl(fileData.shareableUrl);
+            
+            // NOTE ON SHARING: Since we don't have a database, the frontend cannot 
+            // look up the full Vercel Blob URL from the 'filename' ID alone.
+            // A permanent shared link feature requires a database (like Vercel Postgres) 
+            // to map the 'filename' to the permanent 'publicFileUrl'.
+            
+            // If pdfData is null, display the warning instead of trying to load.
+            setError(`Document ID "${fileData.filename}" found in URL, but the file content cannot be loaded. Sharing requires a database to store the permanent Blob URL.`);
         }
     }, []); 
 
     // Derived States
     const isLoading = isUploading;
-    const isReady = pdfData !== null && numPages !== null && error === null;
-    const isIdle = pdfData === null && numPages === null && error === null && !isUploading && !isSharedView;
-
     const { width, height } = dimensions;
 
     return (
         <div className={isSharedView ? 'min-h-screen bg-white' : 'min-h-screen bg-black'}>
             
-            {/* ... Header/UI logic is unchanged ... */}
+            {/* Header/UI Logic remains the same, using derived states */}
             
             {/* Top Header */}
             {!isSharedView && (
@@ -303,7 +303,7 @@ function Flipbook() {
                                 {isLoading ? 'Uploading...' : 'Select PDF File'}
                             </button>
                             
-                            {error && (
+                            {error && !isSharedView && ( // Display upload errors here
                                 <div className="mt-4 p-3 border border-gray-400 rounded">
                                     <p className='text-black text-center'>{error}</p>
                                 </div>
@@ -367,22 +367,6 @@ function Flipbook() {
                 {/* PDF Content Area */}
                 {pdfData && !isLoading && (
                     <div className="flex justify-center">
-                        {/* PDF Loading */}
-                        {numPages === null && !error && (
-                            <div className="flex flex-col items-center justify-center py-20">
-                                <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-black mb-3"></div>
-                                <p className="text-black">Loading PDF...</p>
-                            </div>
-                        )}
-                        
-                        {/* Error Display */}
-                        {error && (
-                            <div className="border border-gray-400 p-6 max-w-md">
-                                <p className="text-black font-semibold mb-2">Error</p>
-                                <p className="text-gray-600">{error}</p>
-                            </div>
-                        )}
-
                         {/* PDF Document */}
                         <Document
                             file={pdfData}
@@ -396,7 +380,7 @@ function Flipbook() {
                             }
                         >
                             {/* Single Page Portrait Flipbook */}
-                            {isReady && numPages > 0 && (
+                            {numPages > 0 && (
                                 <div>
                                     <HTMLFlipBook 
                                         width={width} 
@@ -415,7 +399,6 @@ function Flipbook() {
                                         mobileScrollSupport={true}
                                         swipeDistance={30}
                                         showPageCorners={false}
-                                        // Added ref here
                                     >
                                         {Array.from({ length: numPages }, (_, i) => (
                                             <FlipPage 
@@ -435,11 +418,24 @@ function Flipbook() {
                         </Document>
                     </div>
                 )}
+                
+                {/* Error Display (General and Shared View) */}
+                {error && (
+                    <div className="flex justify-center py-10">
+                        <div className="border border-red-400 bg-red-100 p-6 max-w-lg rounded-lg shadow-md">
+                            <p className="text-red-700 font-semibold mb-2">Error / Missing File</p>
+                            <p className="text-red-600">{error}</p>
+                            {isSharedView && (
+                                <p className="text-red-600 mt-3 text-sm">**Hint:** For permanent sharing, consider adding a database (like Vercel Postgres) to map the URL ID to the Vercel Blob file link.</p>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* Initial State - No PDF Uploaded */}
-                {isIdle && !isSharedView && !pdfData && (
+                {initialLoadData === null && !pdfData && !isLoading && !error && (
                     <div className="text-center py-20">
-                        {/* Empty state - you can add content here */}
+                        {/* Empty state content */}
                     </div>
                 )}
             </div>
