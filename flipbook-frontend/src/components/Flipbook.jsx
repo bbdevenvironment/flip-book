@@ -7,44 +7,46 @@ import 'react-pdf/dist/esm/Page/TextLayer.css';
 // Set up PDF.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
 
-// ********************************************
-// CRITICAL: REPLACE WITH YOUR ACTUAL DEPLOYED BACKEND URL
-// ********************************************
+// API endpoints
 const DEPLOYED_BACKEND_URL = 'https://flip-book-backend.vercel.app'; 
 const UPLOAD_API_ENDPOINT = `${DEPLOYED_BACKEND_URL}/api/upload-pdf`;
 const LOOKUP_API_ENDPOINT = `${DEPLOYED_BACKEND_URL}/api/get-pdf-url`;
 const FRONTEND_BASE_URL = window.location.origin;
 
-// Get initial file from URL query parameter (No change)
+// Maximum file size: 30MB
+const MAX_FILE_SIZE = 30 * 1024 * 1024; // 30MB in bytes
+
+// Get initial file from URL query parameter
 const getInitialFile = () => {
     const params = new URLSearchParams(window.location.search);
-    const filename = params.get('file'); 
+    const filename = params.get('file'); 
     
     if (filename) {
         return {
             filename: filename,
             publicFileUrl: null, 
-            shareableUrl: `${FRONTEND_BASE_URL}/?file=${filename}` 
+            shareableUrl: `${FRONTEND_BASE_URL}/?file=${filename}`
         };
     }
     return null;
 };
 
-// Single Page Component (No change)
+// Single Page Component
 const FlipPage = React.forwardRef((props, ref) => {
-    const { pageNumber, width, height } = props; 
+    const { pageNumber, width, height } = props; 
     
     return (
-        <div 
-            className="demoPage overflow-hidden" 
-            ref={ref} 
-            style={{ 
-                height: height, 
+        <div 
+            className="demoPage overflow-hidden relative" 
+            ref={ref} 
+            style={{ 
+                height: height, 
                 width: width,
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'center',
-                backgroundColor: 'white'
+                backgroundColor: 'white',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08)'
             }}
         >
             <Page
@@ -53,13 +55,17 @@ const FlipPage = React.forwardRef((props, ref) => {
                 renderAnnotationLayer={false}
                 renderTextLayer={false}
                 loading={
-                    <div className='flex items-center justify-center w-full h-full bg-gray-100'>
-                        <div className="text-gray-500">Loading page {pageNumber}...</div>
+                    <div className='flex items-center justify-center w-full h-full bg-gray-50'>
+                        <div className="text-gray-400">Page {pageNumber}</div>
                     </div>
                 }
             />
-            <div className='absolute bottom-0 left-0 w-full p-2 text-center text-xs text-gray-500 border-t border-gray-200'>
-                Page {pageNumber}
+            
+            {/* Subtle page indicator */}
+            <div className='absolute bottom-2 right-2'>
+                <div className='bg-gray-800 text-white text-xs px-2 py-0.5 rounded opacity-70'>
+                    {pageNumber}
+                </div>
             </div>
         </div>
     );
@@ -70,42 +76,65 @@ FlipPage.displayName = 'FlipPage';
 // Main Flipbook Component
 function Flipbook() {
     const [numPages, setNumPages] = useState(null);
-    const [pdfData, setPdfData] = useState(null); 
+    const [pdfData, setPdfData] = useState(null); 
     const [error, setError] = useState(null);
-    const [isUploading, setIsUploading] = useState(false); 
+    const [isUploading, setIsUploading] = useState(false); 
+    const [uploadProgress, setUploadProgress] = useState(0);
     const [shareableFlipbookUrl, setShareableFlipbookUrl] = useState(null);
-    const [initialLoadData, setInitialLoadData] = useState(null); 
-    const [isSharedLoading, setIsSharedLoading] = useState(false); // NEW STATE for shared link loading
-    const [dimensions, setDimensions] = useState({
-        width: 600,
-        height: 800
-    });
+    const [initialLoadData, setInitialLoadData] = useState(null); 
+    const [isSharedLoading, setIsSharedLoading] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const [showShareOptions, setShowShareOptions] = useState(false);
+    const [fileName, setFileName] = useState('');
     
     const fileInputRef = useRef(null);
+    const flipBookRef = useRef(null);
     const isSharedView = initialLoadData !== null;
 
-    // Calculate dimensions (No change)
+    // Calculate dimensions for flipbook
     const calculateDimensions = useCallback(() => {
-        const viewportWidth = window.innerWidth * 0.9;
-        const viewportHeight = window.innerHeight * 0.8;
-        
-        const portraitRatio = 0.707;
-        let pageWidth = Math.min(viewportWidth, 800);
-        let pageHeight = pageWidth / portraitRatio;
-        
-        if (pageHeight > viewportHeight) {
-            pageHeight = viewportHeight;
-            pageWidth = pageHeight * portraitRatio;
+        if (isFullscreen) {
+            const maxWidth = Math.min(window.innerWidth * 0.9, 1200);
+            const maxHeight = Math.min(window.innerHeight * 0.85, 900);
+            
+            const portraitRatio = 0.707;
+            let width = maxWidth;
+            let height = width / portraitRatio;
+            
+            if (height > maxHeight) {
+                height = maxHeight;
+                width = height * portraitRatio;
+            }
+            
+            return {
+                width: Math.floor(width),
+                height: Math.floor(height)
+            };
         }
         
-        if (pageWidth < 400) pageWidth = 400;
-        if (pageHeight < 500) pageHeight = 500;
+        const viewportWidth = window.innerWidth * 0.8;
+        const viewportHeight = window.innerHeight * 0.7;
+        
+        const portraitRatio = 0.707;
+        let width = Math.min(viewportWidth, 800);
+        let height = width / portraitRatio;
+        
+        if (height > viewportHeight) {
+            height = viewportHeight;
+            width = height * portraitRatio;
+        }
+        
+        if (width < 400) width = 400;
+        if (height < 560) height = 560;
         
         return {
-            width: Math.floor(pageWidth),
-            height: Math.floor(pageHeight)
+            width: Math.floor(width),
+            height: Math.floor(height)
         };
-    }, []);
+    }, [isFullscreen]);
+
+    const [dimensions, setDimensions] = useState(calculateDimensions());
 
     useEffect(() => {
         const updateDimensions = () => {
@@ -120,64 +149,115 @@ function Flipbook() {
         };
     }, [calculateDimensions]);
 
-    // File Upload Function (No change)
+    // Enhanced File Upload Function with progress tracking
     const uploadPdfToServer = async (file) => {
         setError(null);
-        setNumPages(null); 
-        setPdfData(null); 
+        setNumPages(null); 
+        setPdfData(null); 
         setShareableFlipbookUrl(null);
+        setCurrentPage(1);
+        setUploadProgress(0);
         setIsUploading(true);
+        setFileName(file.name);
         
+        // Validate file size
+        if (file.size > MAX_FILE_SIZE) {
+            setError(`File size (${(file.size / (1024*1024)).toFixed(1)}MB) exceeds maximum limit of 30MB`);
+            setIsUploading(false);
+            return;
+        }
+
         const formData = new FormData();
-        formData.append('bookbuddy', file); 
+        formData.append('bookbuddy', file);
 
         try {
-            const response = await fetch(UPLOAD_API_ENDPOINT, {
-                method: 'POST',
-                body: formData
+            // Create XMLHttpRequest for progress tracking
+            const xhr = new XMLHttpRequest();
+            
+            xhr.upload.addEventListener('progress', (event) => {
+                if (event.lengthComputable) {
+                    const percentComplete = (event.loaded / event.total) * 100;
+                    setUploadProgress(Math.round(percentComplete));
+                }
             });
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                try {
-                    const errorData = JSON.parse(errorText);
-                    throw new Error(errorData.message || `Upload failed with status ${response.status}`);
-                } catch {
-                    throw new Error(`Upload failed. Server response: ${errorText.substring(0, 100)}`);
-                }
-            }
+            const response = await new Promise((resolve, reject) => {
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try {
+                            const data = JSON.parse(xhr.responseText);
+                            resolve(data);
+                        } catch (e) {
+                            reject(new Error('Invalid server response'));
+                        }
+                    } else {
+                        let errorMessage = `Upload failed with status ${xhr.status}`;
+                        try {
+                            const errorData = JSON.parse(xhr.responseText);
+                            if (errorData.message) {
+                                errorMessage = errorData.message;
+                            }
+                        } catch (e) {
+                            // Use default error message
+                        }
+                        reject(new Error(errorMessage));
+                    }
+                };
+                
+                xhr.onerror = () => reject(new Error('Network error - check your connection'));
+                xhr.ontimeout = () => reject(new Error('Request timeout - server may be busy'));
+                
+                xhr.open('POST', UPLOAD_API_ENDPOINT);
+                xhr.timeout = 300000; // 5 minutes timeout for large files
+                xhr.send(formData);
+            });
 
-            const data = await response.json();
-            
-            if (!data.filename || !data.publicFileUrl) {
+            if (!response.filename || !response.publicFileUrl) {
                 throw new Error("Invalid server response: Missing file URL or filename.");
             }
 
-            setPdfData(data.publicFileUrl); 
-            setShareableFlipbookUrl(`${FRONTEND_BASE_URL}/?file=${data.filename}`); 
+            setPdfData(response.publicFileUrl); 
+            setShareableFlipbookUrl(`${FRONTEND_BASE_URL}/?file=${response.filename}`); 
+            setUploadProgress(100);
             
-            const newUrl = `${FRONTEND_BASE_URL}/?file=${data.filename}`;
+            const newUrl = `${FRONTEND_BASE_URL}/?file=${response.filename}`;
             window.history.pushState({ path: newUrl }, '', newUrl);
 
         } catch (err) {
             console.error('Upload error:', err);
-            setError(err.message || 'Failed to upload PDF. Check your backend deployment.');
-            setPdfData(null); 
+            let errorMsg = err.message || 'Failed to upload PDF.';
+            
+            // Provide more specific error messages
+            if (err.message.includes('timeout')) {
+                errorMsg = 'Upload timeout. Try a smaller file or check your connection.';
+            } else if (err.message.includes('Network error')) {
+                errorMsg = 'Network error. Check your internet connection.';
+            } else if (err.message.includes('413') || err.message.includes('Payload too large')) {
+                errorMsg = 'File too large. The server has a 4.5MB limit. Please compress your PDF or use a smaller file.';
+            }
+            
+            setError(errorMsg);
+            setPdfData(null); 
         } finally {
-            setIsUploading(false); 
+            setIsUploading(false); 
         }
     };
 
-    // Event Handlers (No change)
+    // Event Handlers
     const handleFileChange = (event) => {
         const file = event.target.files[0];
         
-        if (!file || file.type !== 'application/pdf') {
+        if (!file) {
+            setError('Please select a file');
+            return;
+        }
+        
+        if (file.type !== 'application/pdf') {
             setError('Please select a valid PDF file (.pdf)');
             return;
         }
         
-        uploadPdfToServer(file); 
+        uploadPdfToServer(file); 
     };
 
     const onDocumentLoadSuccess = ({ numPages }) => {
@@ -202,32 +282,82 @@ function Flipbook() {
         setNumPages(null);
         setError(null);
         setShareableFlipbookUrl(null);
+        setCurrentPage(1);
+        setFileName('');
         if (fileInputRef.current) fileInputRef.current.value = '';
         
         const newUrl = window.location.origin + window.location.pathname;
         window.history.pushState({ path: newUrl }, '', newUrl);
     };
 
-    // ********************************************
-    // CORRECTED useEffect Hook for Permanent Sharing Lookup
-    // ********************************************
+    const handlePageChange = (page) => {
+        const newPage = Math.max(1, Math.min(page, numPages || 1));
+        setCurrentPage(newPage);
+        if (flipBookRef.current) {
+            flipBookRef.current.pageFlip().turnToPage(newPage - 1);
+        }
+    };
+
+    // ADDED: Toggle fullscreen function
+    const toggleFullscreen = () => {
+        setIsFullscreen(!isFullscreen);
+    };
+
+    const copyShareLink = () => {
+        if (shareableFlipbookUrl) {
+            navigator.clipboard.writeText(shareableFlipbookUrl);
+            setShowShareOptions(false);
+            // Optional: Add toast notification
+            alert('Link copied to clipboard!');
+        }
+    };
+
+    // Handle drag and drop
+    const handleDragOver = (e) => {
+        e.preventDefault();
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        const file = e.dataTransfer.files[0];
+        if (file && file.type === 'application/pdf') {
+            uploadPdfToServer(file);
+        } else {
+            setError('Please drop a valid PDF file');
+        }
+    };
+
+    // Handle escape key to exit fullscreen
+    useEffect(() => {
+        const handleEscKey = (event) => {
+            if (event.key === 'Escape' && isFullscreen) {
+                toggleFullscreen();
+            }
+        };
+
+        window.addEventListener('keydown', handleEscKey);
+        return () => {
+            window.removeEventListener('keydown', handleEscKey);
+        };
+    }, [isFullscreen]);
+
+    // useEffect Hook for Permanent Sharing Lookup
     useEffect(() => {
         const fileData = getInitialFile();
-        setInitialLoadData(fileData); 
+        setInitialLoadData(fileData); 
         
         if (fileData && fileData.filename) {
             setShareableFlipbookUrl(fileData.shareableUrl);
             setError(null); 
             setPdfData(null);
-            setIsSharedLoading(true); // START LOADING
+            setIsSharedLoading(true);
 
             const fetchSharedPdf = async (filename) => {
                 try {
-                    // Call the new backend endpoint to get the permanent Blob URL
                     const response = await fetch(`${LOOKUP_API_ENDPOINT}?filename=${filename}`);
                     
                     if (response.status === 404) {
-                        throw new Error("File ID not found in the database. The link may be broken or expired.");
+                        throw new Error("File ID not found. The link may be broken or expired.");
                     }
                     if (!response.ok) {
                         const errorData = await response.json();
@@ -240,7 +370,6 @@ function Flipbook() {
                         throw new Error("Database record is incomplete. Cannot retrieve the Blob URL.");
                     }
 
-                    // SUCCESS
                     setPdfData(data.publicFileUrl); 
                     setNumPages(null);
                     setError(null); 
@@ -250,39 +379,122 @@ function Flipbook() {
                     setError(`Error accessing shared link: ${err.message}.`);
                     setPdfData(null);
                 } finally {
-                    setIsSharedLoading(false); // STOP LOADING
+                    setIsSharedLoading(false);
                 }
             };
 
             fetchSharedPdf(fileData.filename);
         }
-    }, []); 
-    // ********************************************
+    }, []);
 
-    // Derived States
-    const isLoading = isUploading;
     const { width, height } = dimensions;
 
     return (
-        // --- THEME CHANGE: Brown/Tan Theme
-        <div className={isSharedView ? 'min-h-screen bg-amber-50' : 'min-h-screen bg-stone-800'}>
-            
-            {/* Top Header */}
-            {!isSharedView && (
-                <div className="border-b border-gray-600 py-4 px-6 bg-stone-700">
-                    <div className="max-w-6xl mx-auto">
-                        <div className="flex justify-between items-center">
-                            <div>
-                                <h1 className="text-2xl font-bold text-amber-50">BOOKBUDDY</h1>
-                                <p className="text-stone-400 text-sm">PDF Flipbook Viewer</p>
+        <div className={`min-h-screen bg-gray-50 ${isFullscreen ? 'fixed inset-0 z-50 bg-white' : ''}`}>
+            {/* Header - Only show when not in fullscreen */}
+            {!isFullscreen && (
+                <div className="bg-white border-b border-gray-200 shadow-sm">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                        <div className="flex justify-between items-center h-16">
+                            {/* Logo */}
+                            <div className="flex items-center space-x-3">
+                                <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
+                                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h1 className="text-lg font-semibold text-gray-900">BookBuddy Flip</h1>
+                                    <p className="text-xs text-gray-500">Interactive PDF Viewer</p>
+                                </div>
                             </div>
-                            <div>
-                                {shareableFlipbookUrl && (
-                                    <button 
-                                        onClick={removePDF}
-                                        className="px-4 py-2 bg-stone-600 text-amber-50 border border-stone-500 rounded text-sm hover:bg-stone-500"
+
+                            {/* Right Side Actions */}
+                            <div className="flex items-center space-x-3">
+                                {pdfData && (
+                                    <>
+                                        <div className="flex items-center space-x-2">
+                                            <span className="text-sm text-gray-600">Page</span>
+                                            <div className="flex items-center bg-gray-100 rounded">
+                                                <button 
+                                                    onClick={() => handlePageChange(currentPage - 1)}
+                                                    disabled={currentPage <= 1}
+                                                    className="px-2 py-1 text-gray-600 hover:bg-gray-200 rounded-l disabled:opacity-40"
+                                                >
+                                                    ←
+                                                </button>
+                                                <span className="px-3 py-1 text-sm font-medium">
+                                                    {currentPage} of {numPages || 1}
+                                                </span>
+                                                <button 
+                                                    onClick={() => handlePageChange(currentPage + 1)}
+                                                    disabled={currentPage >= (numPages || 1)}
+                                                    className="px-2 py-1 text-gray-600 hover:bg-gray-200 rounded-r disabled:opacity-40"
+                                                >
+                                                    →
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={toggleFullscreen}
+                                            className="p-2 text-gray-600 hover:bg-gray-100 rounded"
+                                            title="Fullscreen"
+                                        >
+                                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-5V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                                            </svg>
+                                        </button>
+
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => setShowShareOptions(!showShareOptions)}
+                                                className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 flex items-center space-x-2"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684" />
+                                                </svg>
+                                                <span>Share</span>
+                                            </button>
+
+                                            {showShareOptions && (
+                                                <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
+                                                    <div className="p-4">
+                                                        <p className="text-sm font-medium text-gray-900 mb-2">Share this flipbook</p>
+                                                        <div className="space-y-3">
+                                                            <div>
+                                                                <div className="flex">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={shareableFlipbookUrl || ''}
+                                                                        readOnly
+                                                                        className="flex-1 px-3 py-2 text-xs border border-gray-300 rounded-l bg-gray-50"
+                                                                    />
+                                                                    <button
+                                                                        onClick={copyShareLink}
+                                                                        className="px-3 py-2 bg-blue-600 text-white text-xs rounded-r hover:bg-blue-700"
+                                                                    >
+                                                                        Copy
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                            <div className="pt-2 border-t border-gray-200">
+                                                                <p className="text-xs text-gray-500">Made with BookBuddy</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                                
+                                {!pdfData && !isSharedView && (
+                                    <button
+                                        onClick={handleUploadClick}
+                                        className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
                                     >
-                                        Remove PDF
+                                        Upload PDF
                                     </button>
                                 )}
                             </div>
@@ -291,207 +503,383 @@ function Flipbook() {
                 </div>
             )}
 
-            {/* Shared View Header */}
-            {isSharedView && (
-                <div className="border-b border-gray-300 py-4 px-6 bg-amber-50">
-                    <div className="max-w-6xl mx-auto">
-                        <h1 className="text-2xl font-bold text-stone-800 text-center">BOOKBUDDY</h1>
+            {/* Fullscreen Controls */}
+            {isFullscreen && (
+                <div className="absolute top-0 left-0 right-0 bg-black/80 text-white p-4 z-10">
+                    <div className="max-w-7xl mx-auto flex justify-between items-center">
+                        <div className="flex items-center space-x-4">
+                            <button
+                                onClick={toggleFullscreen}
+                                className="p-2 hover:bg-white/20 rounded"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                            <span className="text-sm">Fullscreen Mode • Press ESC to exit</span>
+                        </div>
+                        
+                        <div className="flex items-center space-x-4">
+                            <div className="flex items-center space-x-2">
+                                <span className="text-sm">Page {currentPage} of {numPages || 1}</span>
+                                <button 
+                                    onClick={() => handlePageChange(currentPage - 1)}
+                                    disabled={currentPage <= 1}
+                                    className="px-2 py-1 text-white hover:bg-white/20 rounded disabled:opacity-40"
+                                >
+                                    ←
+                                </button>
+                                <button 
+                                    onClick={() => handlePageChange(currentPage + 1)}
+                                    disabled={currentPage >= (numPages || 1)}
+                                    className="px-2 py-1 text-white hover:bg-white/20 rounded disabled:opacity-40"
+                                >
+                                    →
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             )}
 
             {/* Main Content */}
-            <div className={`max-w-6xl mx-auto py-6 px-4 ${isSharedView ? '' : 'min-h-[calc(100vh-140px)]'}`}>
-                
+            <div className={`${isFullscreen ? 'h-screen flex items-center justify-center' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8'}`}>
                 {/* Upload Section */}
-                {!isSharedView && !pdfData && (
-                    <div className="mb-8">
-                        <div className="border border-stone-500 p-8 rounded-lg bg-stone-700">
-                            <div className="text-center mb-6">
-                                <h2 className="text-xl font-semibold text-amber-50 mb-2">Upload PDF Document</h2>
-                                <p className="text-stone-400">Create a portrait-style flipbook from your PDF</p>
-                            </div>
-                            
-                            <input
-                                type="file"
-                                ref={fileInputRef}
-                                onChange={handleFileChange}
-                                accept=".pdf"
-                                className='hidden'
-                            />
-                            
-                            <button
-                                onClick={handleUploadClick}
-                                disabled={isLoading} 
-                                className={`w-full py-4 rounded text-lg border ${
-                                    isLoading ? 'bg-stone-500 text-stone-300 border-stone-500 cursor-not-allowed' : 'bg-amber-600 text-white border-amber-600 hover:bg-amber-700'
-                                }`}
+                {!isSharedView && !pdfData && !isUploading && (
+                    <div className="flex flex-col items-center justify-center min-h-[70vh]">
+                        <div className="text-center mb-12">
+                            <h1 className="text-4xl font-bold text-gray-900 mb-4">Create Interactive Flipbooks</h1>
+                            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+                                Upload your PDF to create a beautiful, interactive flipbook experience
+                            </p>
+                        </div>
+
+                        <div className="max-w-md w-full">
+                            <div 
+                                className="bg-white rounded-xl border-2 border-dashed border-gray-300 shadow-sm p-8 hover:border-blue-400 transition-colors"
+                                onDragOver={handleDragOver}
+                                onDrop={handleDrop}
                             >
-                                {isLoading ? 'Uploading...' : 'Select PDF File'}
-                            </button>
-                            
-                            {error && !isSharedView && (
-                                <div className="mt-4 p-3 border border-red-400 bg-red-100 rounded">
-                                    <p className='text-red-700 text-center'>{error}</p>
+                                <div className="text-center mb-6">
+                                    <div className="w-16 h-16 mx-auto bg-blue-50 rounded-full flex items-center justify-center mb-4">
+                                        <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                    </div>
+                                    <h2 className="text-xl font-semibold text-gray-900 mb-2">Upload PDF</h2>
+                                    <p className="text-gray-600 mb-4">Drag & drop or click to browse</p>
+                                    <p className="text-sm text-gray-500">Supports files up to 30MB</p>
                                 </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-                {/* Upload Status Section */}
-                {!isSharedView && pdfData && (
-                    <div className="mb-6">
-                        <div className="border border-stone-500 p-5 rounded-lg bg-stone-700">
-                            <div className="flex justify-between items-center mb-3">
-                                <div>
-                                    <p className="text-amber-50 font-semibold">Current Document</p>
-                                    <p className="text-stone-400 text-sm">Portrait Flipbook View</p>
-                                </div>
-                                <button 
+                                
+                                <button
                                     onClick={handleUploadClick}
-                                    className="px-4 py-2 border border-amber-600 text-amber-600 rounded text-sm hover:bg-amber-600 hover:text-white bg-stone-800"
+                                    className="w-full py-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center space-x-2 mb-4"
                                 >
-                                    Upload New PDF
+                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                    </svg>
+                                    <span>Choose PDF File</span>
                                 </button>
+                                
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    onChange={handleFileChange}
+                                    accept=".pdf"
+                                    className="hidden"
+                                />
+                                
+                                <div className="text-center text-gray-500 text-sm space-y-2">
+                                    <p>• Supports PDF files only</p>
+                                    <p>• Maximum file size: 30MB</p>
+                                    <p>• Secure upload with encryption</p>
+                                </div>
                             </div>
                             
-                            {shareableFlipbookUrl && (
-                                <div className="mt-3 pt-3 border-t border-stone-600">
-                                    <p className="text-amber-50 mb-2">Share Link:</p>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={shareableFlipbookUrl}
-                                            readOnly
-                                            className="flex-1 p-2 border border-stone-500 rounded text-stone-900 text-sm bg-stone-200"
-                                        />
-                                        <button
-                                            onClick={() => navigator.clipboard.writeText(shareableFlipbookUrl)}
-                                            className="px-4 py-2 bg-amber-600 text-white rounded text-sm hover:bg-amber-700"
+                            <div className="mt-8 text-center">
+                                <p className="text-gray-500 text-sm">
+                                    <span className="font-medium">BookBuddy Flip</span> • Professional PDF Flipbooks
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Upload Progress Section */}
+                {isUploading && (
+                    <div className="flex flex-col items-center justify-center min-h-[60vh]">
+                        <div className="max-w-md w-full bg-white rounded-xl border border-gray-200 shadow-sm p-8">
+                            <div className="text-center mb-6">
+                                <div className="w-16 h-16 mx-auto bg-blue-50 rounded-full flex items-center justify-center mb-4">
+                                    <div className="relative">
+                                        <div className="w-12 h-12 border-4 border-blue-200 rounded-full"></div>
+                                        <div 
+                                            className="absolute top-0 left-0 w-12 h-12 border-4 border-blue-600 rounded-full animate-spin"
+                                            style={{ clipPath: `inset(0 ${100 - uploadProgress}% 0 0)` }}
+                                        ></div>
+                                    </div>
+                                </div>
+                                <h2 className="text-xl font-semibold text-gray-900 mb-2">Uploading PDF</h2>
+                                <p className="text-gray-600 truncate">{fileName}</p>
+                            </div>
+                            
+                            {/* Progress Bar */}
+                            <div className="mb-6">
+                                <div className="flex justify-between text-sm text-gray-600 mb-2">
+                                    <span>Uploading...</span>
+                                    <span>{uploadProgress}%</span>
+                                </div>
+                                <div className="w-full bg-gray-200 rounded-full h-2">
+                                    <div 
+                                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                        style={{ width: `${uploadProgress}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+                            
+                            <div className="text-center text-gray-500 text-sm">
+                                <p>• Please wait while we upload your file</p>
+                                <p>• Do not close this window</p>
+                                <p>• Uploading {(fileName && /\.pdf$/i.test(fileName)) ? 'PDF' : 'file'}...</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Loading States for Shared View */}
+                {isSharedLoading && (
+                    <div className="flex flex-col items-center justify-center min-h-[60vh]">
+                        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mb-4"></div>
+                        <p className="text-lg font-medium text-gray-700">Loading shared flipbook...</p>
+                        <p className="text-gray-500">Please wait</p>
+                    </div>
+                )}
+
+                {/* Flipbook Viewer */}
+                {pdfData && !isUploading && !isSharedLoading && (
+                    <div className={`flex flex-col items-center ${isFullscreen ? 'w-full h-full justify-center' : ''}`}>
+                        {/* Flipbook Header - Only show when not in fullscreen */}
+                        {!isFullscreen && (
+                            <div className="mb-8 text-center">
+                                <h2 className="text-2xl font-bold text-gray-900">Your Flipbook</h2>
+                                <p className="text-gray-600 mt-1">
+                                    Pages {currentPage} - {Math.min(currentPage + 1, numPages || 1)} of {numPages || 1}
+                                </p>
+                            </div>
+                        )}
+
+                        {/* The Flipbook */}
+                        <div className={`relative ${isFullscreen ? 'w-full flex justify-center' : ''}`}>
+                            <Document
+                                file={pdfData}
+                                onLoadSuccess={onDocumentLoadSuccess}
+                                onLoadError={onDocumentLoadError}
+                                loading={
+                                    <div className="flex flex-col items-center justify-center py-20">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
+                                        <p className="text-gray-700 mt-3">Loading document...</p>
+                                    </div>
+                                }
+                            >
+                                {numPages > 0 && (
+                                    <div className={`flex justify-center ${isFullscreen ? 'w-full' : ''}`}>
+                                        <HTMLFlipBook 
+                                            ref={flipBookRef}
+                                            width={width} 
+                                            height={height}
+                                            size="fixed"
+                                            minWidth={width}
+                                            maxWidth={width}
+                                            minHeight={height}
+                                            maxHeight={height}
+                                            className="mx-auto"
+                                            style={{ 
+                                                backgroundColor: '#f5f5f5'
+                                            }}
+                                            flippingTime={600}
+                                            usePortrait={true}
+                                            maxShadowOpacity={0.2}
+                                            showCover={false}
+                                            mobileScrollSupport={true}
+                                            swipeDistance={30}
+                                            showPageCorners={false}
+                                            onFlip={(e) => setCurrentPage(e.data + 1)}
                                         >
-                                            Copy
-                                        </button>
+                                            {Array.from({ length: numPages }, (_, i) => (
+                                                <FlipPage 
+                                                    key={i}
+                                                    pageNumber={i + 1}
+                                                    width={width}
+                                                    height={height}
+                                                />
+                                            ))}
+                                        </HTMLFlipBook>
                                     </div>
-                                    {numPages && (
-                                        <p className="text-stone-400 text-sm mt-2">Total pages: {numPages}</p>
-                                    )}
-                                </div>
-                            )}
+                                )}
+                            </Document>
                         </div>
-                    </div>
-                )}
 
-                {/* Loading State for Initial Upload */}
-                {isLoading && (
-                    <div className="flex flex-col items-center justify-center py-20">
-                        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-600 mb-4"></div>
-                        <p className="text-amber-50 text-lg">Uploading PDF...</p>
-                        <p className="text-stone-400 mt-1">Please wait</p>
-                    </div>
-                )}
-                
-                {/* Loading State for Shared Link Lookup */}
-                {isSharedView && isSharedLoading && !error && (
-                    <div className="flex flex-col items-center justify-center py-20">
-                        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-600 mb-4"></div>
-                        <p className="text-amber-50 text-lg">Fetching document link from database...</p>
-                        <p className="text-stone-400 mt-1">Please wait</p>
-                    </div>
-                )}
-
-
-                {/* PDF Content Area */}
-                {pdfData && !isLoading && !isSharedLoading && (
-                    <div className="flex flex-col items-center">
-                        {/* PDF Document */}
-                        <Document
-                            file={pdfData}
-                            onLoadSuccess={onDocumentLoadSuccess}
-                            onLoadError={onDocumentLoadError}
-                            loading={
-                                <div className="flex flex-col items-center justify-center py-20">
-                                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-amber-600"></div>
-                                    <p className="text-amber-50 mt-2">Rendering document...</p>
-                                </div>
-                            }
-                        >
-                            {/* Single Page Portrait Flipbook */}
-                            {numPages > 0 && (
-                                <div className="flex flex-col items-center">
-                                    <HTMLFlipBook 
-                                        width={width} 
-                                        height={height}
-                                        size="fixed"
-                                        minWidth={width}
-                                        maxWidth={width}
-                                        minHeight={height}
-                                        maxHeight={height}
-                                        className="mx-auto border border-stone-500"
-                                        style={{ backgroundColor: 'white' }}
-                                        flippingTime={500}
-                                        usePortrait={true}
-                                        maxShadowOpacity={0.2}
-                                        showCover={false}
-                                        mobileScrollSupport={true}
-                                        swipeDistance={30}
-                                        showPageCorners={false}
+                        {/* Bottom Controls - Only show when not in fullscreen */}
+                        {!isFullscreen && (
+                            <div className="mt-8 flex flex-col items-center space-y-6 w-full max-w-2xl">
+                                {/* Page Navigation */}
+                                <div className="flex items-center justify-center space-x-4">
+                                    <button
+                                        onClick={() => handlePageChange(currentPage - 1)}
+                                        disabled={currentPage <= 1}
+                                        className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-40 flex items-center space-x-2"
                                     >
-                                        {Array.from({ length: numPages }, (_, i) => (
-                                            <FlipPage 
-                                                key={i}
-                                                pageNumber={i + 1}
-                                                width={width}
-                                                height={height}
-                                            />
-                                        ))}
-                                    </HTMLFlipBook>
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                                        </svg>
+                                        <span>Previous</span>
+                                    </button>
                                     
-                                    <div className="mt-4 text-center text-stone-300">
-                                        <p>Page {numPages ? `1 of ${numPages}` : 'Loading...'}</p>
+                                    <div className="flex items-center space-x-2">
+                                        <span className="text-gray-600 text-sm">Page:</span>
+                                        <div className="flex items-center bg-gray-100 rounded">
+                                            <button 
+                                                onClick={() => handlePageChange(currentPage - 1)}
+                                                disabled={currentPage <= 1}
+                                                className="px-2 py-1 text-gray-600 hover:bg-gray-200 rounded-l disabled:opacity-40"
+                                            >
+                                                ←
+                                            </button>
+                                            <span className="px-3 py-1 text-sm font-medium min-w-[60px] text-center">
+                                                {currentPage} / {numPages || 1}
+                                            </span>
+                                            <button 
+                                                onClick={() => handlePageChange(currentPage + 1)}
+                                                disabled={currentPage >= (numPages || 1)}
+                                                className="px-2 py-1 text-gray-600 hover:bg-gray-200 rounded-r disabled:opacity-40"
+                                            >
+                                                →
+                                            </button>
+                                        </div>
                                     </div>
                                     
-                                    {/* Usage Instructions - Placed below flipbook */}
-                                    <div className="mt-6 p-4 border border-stone-500 rounded bg-stone-700 max-w-lg text-center">
-                                        <h3 className="text-amber-50 font-semibold mb-2">BookBuddy Instructions</h3>
-                                        <p className="text-stone-400 text-sm">
-                                            Click or swipe (left/right) on the edges of the page to turn. On touch devices, use a horizontal swipe gesture.
-                                        </p>
-                                    </div>
-
+                                    <button
+                                        onClick={() => handlePageChange(currentPage + 1)}
+                                        disabled={currentPage >= (numPages || 1)}
+                                        className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-40 flex items-center space-x-2"
+                                    >
+                                        <span>Next</span>
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                        </svg>
+                                    </button>
                                 </div>
-                            )}
-                        </Document>
+
+                                {/* Action Buttons */}
+                                <div className="flex items-center justify-center space-x-4 pt-4 border-t border-gray-200 w-full">
+                                    <button
+                                        onClick={handleUploadClick}
+                                        className="px-4 py-2 text-blue-600 hover:text-blue-700 text-sm flex items-center space-x-1"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                        </svg>
+                                        <span>Upload New</span>
+                                    </button>
+                                    
+                                    <button
+                                        onClick={removePDF}
+                                        className="px-4 py-2 text-red-600 hover:text-red-700 text-sm flex items-center space-x-1"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                        <span>Remove</span>
+                                    </button>
+                                    
+                                    <button
+                                        onClick={toggleFullscreen}
+                                        className="px-4 py-2 text-gray-600 hover:text-gray-700 text-sm flex items-center space-x-1"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-5V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                                        </svg>
+                                        <span>Fullscreen</span>
+                                    </button>
+                                </div>
+
+                                {/* Share Section */}
+                                <div className="pt-4 border-t border-gray-200 w-full">
+                                    <div className="text-center">
+                                        <p className="text-gray-600 text-sm mb-2">Share this flipbook</p>
+                                        <div className="flex items-center justify-center space-x-2">
+                                            <input
+                                                type="text"
+                                                value={shareableFlipbookUrl || ''}
+                                                readOnly
+                                                className="px-3 py-2 text-sm border border-gray-300 rounded bg-gray-50 flex-1 max-w-md"
+                                            />
+                                            <button
+                                                onClick={copyShareLink}
+                                                className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
+                                            >
+                                                Copy Link
+                                            </button>
+                                        </div>
+                                        <p className="text-gray-500 text-xs mt-2">Made with BookBuddy</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
-                
-                {/* Error Display (General and Shared View) */}
+
+                {/* Error Display */}
                 {error && (
-                    <div className="flex justify-center py-10">
-                        <div className="border border-red-400 bg-red-100 p-6 max-w-lg rounded-lg shadow-md">
-                            <p className="text-red-700 font-semibold mb-2">Error / Missing File</p>
-                            <p className="text-red-600">{error}</p>
-                            {isSharedView && (
-                                <p className="text-red-600 mt-3 text-sm">Status: Failed to retrieve permanent link via API.</p>
-                            )}
+                    <div className="flex justify-center py-12">
+                        <div className="max-w-lg w-full">
+                            <div className="bg-white border border-red-200 rounded-xl p-6 shadow-sm">
+                                <div className="flex items-center mb-4">
+                                    <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center mr-3">
+                                        <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                    </div>
+                                    <div>
+                                        <h3 className="font-semibold text-gray-900">Error</h3>
+                                        <p className="text-sm text-gray-600">{error}</p>
+                                    </div>
+                                </div>
+                                
+                                <div className="flex space-x-3">
+                                    {!isSharedView && (
+                                        <button
+                                            onClick={handleUploadClick}
+                                            className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                                        >
+                                            Try Again
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={removePDF}
+                                        className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
+                                    >
+                                        Start Over
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}
+            </div>
 
-                {/* Initial State - No PDF Uploaded */}
-                {initialLoadData === null && !pdfData && !isLoading && !error && (
-                    <div className="text-center py-20">
-                        {/* Empty state content */}
+            {/* Footer - Only show when not in fullscreen */}
+            {!isFullscreen && !pdfData && (
+                <div className="bg-white border-t border-gray-200">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                        <div className="text-center">
+                            <p className="text-gray-600 text-sm">
+                                © {new Date().getFullYear()} BookBuddy Flip • Supports PDFs up to 30MB
+                            </p>
+                        </div>
                     </div>
-                )}
-            </div>
-
-            {/* Footer: Copyrights@bookbuddy.in */}
-            <div className="border-t border-stone-600 py-4 px-6 bg-stone-700">
-                <div className="max-w-6xl mx-auto text-center">
-                   <a href='https://www.book-buddy.in/' target='blank'> <p className="text-stone-400 text-sm">Copyrights@book-buddy.in</p></a>
                 </div>
-            </div>
+            )}
         </div>
     );
 }
