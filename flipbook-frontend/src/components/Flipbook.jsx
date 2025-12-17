@@ -589,18 +589,10 @@ function Flipbook() {
                                     className="hidden"
                                 />
                                 
-                                <div className="text-center text-gray-500 text-sm space-y-2">
-                                    <p>• Supports PDF files only</p>
-                                    <p>• Maximum file size: 30MB</p>
-                                    <p>• Secure upload with encryption</p>
-                                </div>
+                                
                             </div>
                             
-                            <div className="mt-8 text-center">
-                                <p className="text-gray-500 text-sm">
-                                    <span className="font-medium">BookBuddy Flip</span> • Professional PDF Flipbooks
-                                </p>
-                            </div>
+                           
                         </div>
                     </div>
                 )}
@@ -874,7 +866,7 @@ function Flipbook() {
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                         <div className="text-center">
                             <p className="text-gray-600 text-sm">
-                                © {new Date().getFullYear()} BookBuddy Flip • Supports PDFs up to 30MB
+                                © {new Date().getFullYear()} BookBuddy Flip
                             </p>
                         </div>
                     </div>
