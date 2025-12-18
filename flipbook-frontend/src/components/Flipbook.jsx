@@ -87,18 +87,39 @@ function Flipbook() {
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showShareOptions, setShowShareOptions] = useState(false);
     const [fileName, setFileName] = useState('');
+    const [isMobile, setIsMobile] = useState(false);
     
     const fileInputRef = useRef(null);
     const flipBookRef = useRef(null);
+    const containerRef = useRef(null);
     const isSharedView = initialLoadData !== null;
 
-    // Calculate dimensions for flipbook
+    // Check for mobile device
+    useEffect(() => {
+        const checkMobile = () => {
+            setIsMobile(window.innerWidth < 768);
+        };
+        
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        
+        return () => {
+            window.removeEventListener('resize', checkMobile);
+        };
+    }, []);
+
+    // Calculate dimensions for flipbook with mobile optimization
     const calculateDimensions = useCallback(() => {
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        
         if (isFullscreen) {
-            const maxWidth = Math.min(window.innerWidth * 0.9, 1200);
-            const maxHeight = Math.min(window.innerHeight * 0.85, 900);
+            // Fullscreen mode
+            const maxWidth = Math.min(viewportWidth * 0.95, 1200);
+            const maxHeight = Math.min(viewportHeight * 0.9, 900);
             
-            const portraitRatio = 0.707;
+            const portraitRatio = 0.707; // A4 ratio
             let width = maxWidth;
             let height = width / portraitRatio;
             
@@ -113,18 +134,44 @@ function Flipbook() {
             };
         }
         
-        const viewportWidth = window.innerWidth * 0.8;
-        const viewportHeight = window.innerHeight * 0.7;
+        if (isMobile) {
+            // Mobile mode - adjust for smaller screens
+            const safeWidth = viewportWidth * 0.92; // 92% of viewport width
+            const safeHeight = viewportHeight * 0.6; // 60% of viewport height
+            
+            const portraitRatio = 0.707;
+            let width = Math.min(safeWidth, 500);
+            let height = width / portraitRatio;
+            
+            if (height > safeHeight) {
+                height = safeHeight;
+                width = height * portraitRatio;
+            }
+            
+            // Minimum dimensions for mobile
+            if (width < 280) width = 280;
+            if (height < 396) height = 396;
+            
+            return {
+                width: Math.floor(width),
+                height: Math.floor(height)
+            };
+        }
+        
+        // Desktop mode
+        const viewportWidthDesktop = viewportWidth * 0.85;
+        const viewportHeightDesktop = viewportHeight * 0.7;
         
         const portraitRatio = 0.707;
-        let width = Math.min(viewportWidth, 800);
+        let width = Math.min(viewportWidthDesktop, 800);
         let height = width / portraitRatio;
         
-        if (height > viewportHeight) {
-            height = viewportHeight;
+        if (height > viewportHeightDesktop) {
+            height = viewportHeightDesktop;
             width = height * portraitRatio;
         }
         
+        // Minimum dimensions
         if (width < 400) width = 400;
         if (height < 560) height = 560;
         
@@ -132,7 +179,7 @@ function Flipbook() {
             width: Math.floor(width),
             height: Math.floor(height)
         };
-    }, [isFullscreen]);
+    }, [isFullscreen, isMobile]);
 
     const [dimensions, setDimensions] = useState(calculateDimensions());
 
@@ -298,7 +345,7 @@ function Flipbook() {
         }
     };
 
-    // ADDED: Toggle fullscreen function
+    // Toggle fullscreen function
     const toggleFullscreen = () => {
         setIsFullscreen(!isFullscreen);
     };
@@ -390,7 +437,10 @@ function Flipbook() {
     const { width, height } = dimensions;
 
     return (
-        <div className={`min-h-screen bg-gray-50 ${isFullscreen ? 'fixed inset-0 z-50 bg-white' : ''}`}>
+        <div 
+            className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white' : 'min-h-screen bg-gray-50'}`}
+            ref={containerRef}
+        >
             {/* Header - Only show when not in fullscreen */}
             {!isFullscreen && (
                 <div className="bg-white border-b border-gray-200 shadow-sm">
@@ -403,7 +453,7 @@ function Flipbook() {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                                     </svg>
                                 </div>
-                                <div>
+                                <div className="hidden sm:block">
                                     <h1 className="text-lg font-semibold text-gray-900">BookBuddy Flip</h1>
                                     <p className="text-xs text-gray-500">Interactive PDF Viewer</p>
                                 </div>
@@ -413,7 +463,7 @@ function Flipbook() {
                             <div className="flex items-center space-x-3">
                                 {pdfData && (
                                     <>
-                                        <div className="flex items-center space-x-2">
+                                        <div className="hidden md:flex items-center space-x-2">
                                             <span className="text-sm text-gray-600">Page</span>
                                             <div className="flex items-center bg-gray-100 rounded">
                                                 <button 
@@ -449,32 +499,32 @@ function Flipbook() {
                                         <div className="relative">
                                             <button
                                                 onClick={() => setShowShareOptions(!showShareOptions)}
-                                                className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 flex items-center space-x-2"
+                                                className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 flex items-center space-x-1"
                                             >
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684" />
                                                 </svg>
-                                                <span>Share</span>
+                                                <span className="hidden sm:inline">Share</span>
                                             </button>
 
                                             {showShareOptions && (
-                                                <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
+                                                <div className="absolute right-0 mt-2 w-64 md:w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-10">
                                                     <div className="p-4">
                                                         <p className="text-sm font-medium text-gray-900 mb-2">Share this flipbook</p>
                                                         <div className="space-y-3">
                                                             <div>
-                                                                <div className="flex">
+                                                                <div className="flex flex-col sm:flex-row gap-2">
                                                                     <input
                                                                         type="text"
                                                                         value={shareableFlipbookUrl || ''}
                                                                         readOnly
-                                                                        className="flex-1 px-3 py-2 text-xs border border-gray-300 rounded-l bg-gray-50"
+                                                                        className="flex-1 px-3 py-2 text-xs border border-gray-300 rounded bg-gray-50"
                                                                     />
                                                                     <button
                                                                         onClick={copyShareLink}
-                                                                        className="px-3 py-2 bg-blue-600 text-white text-xs rounded-r hover:bg-blue-700"
+                                                                        className="px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 whitespace-nowrap"
                                                                     >
-                                                                        Copy
+                                                                        Copy Link
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -492,9 +542,10 @@ function Flipbook() {
                                 {!pdfData && !isSharedView && (
                                     <button
                                         onClick={handleUploadClick}
-                                        className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
+                                        className="px-3 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
                                     >
-                                        Upload PDF
+                                        <span className="hidden sm:inline">Upload PDF</span>
+                                        <span className="sm:hidden">Upload</span>
                                     </button>
                                 )}
                             </div>
@@ -505,23 +556,24 @@ function Flipbook() {
 
             {/* Fullscreen Controls */}
             {isFullscreen && (
-                <div className="absolute top-0 left-0 right-0 bg-black/80 text-white p-4 z-10">
+                <div className="absolute top-0 left-0 right-0 bg-black/80 text-white p-3 sm:p-4 z-10">
                     <div className="max-w-7xl mx-auto flex justify-between items-center">
-                        <div className="flex items-center space-x-4">
+                        <div className="flex items-center space-x-2 sm:space-x-4">
                             <button
                                 onClick={toggleFullscreen}
-                                className="p-2 hover:bg-white/20 rounded"
+                                className="p-1 sm:p-2 hover:bg-white/20 rounded"
                             >
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>
                             </button>
-                            <span className="text-sm">Fullscreen Mode • Press ESC to exit</span>
+                            <span className="text-xs sm:text-sm">Fullscreen • Press ESC to exit</span>
                         </div>
                         
-                        <div className="flex items-center space-x-4">
+                        <div className="flex items-center space-x-2 sm:space-x-4">
                             <div className="flex items-center space-x-2">
-                                <span className="text-sm">Page {currentPage} of {numPages || 1}</span>
+                                <span className="text-xs sm:text-sm hidden sm:inline">Page</span>
+                                <span className="text-xs sm:text-sm">{currentPage} / {numPages || 1}</span>
                                 <button 
                                     onClick={() => handlePageChange(currentPage - 1)}
                                     disabled={currentPage <= 1}
@@ -543,42 +595,44 @@ function Flipbook() {
             )}
 
             {/* Main Content */}
-            <div className={`${isFullscreen ? 'h-screen flex items-center justify-center' : 'max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8'}`}>
+            <div className={`${isFullscreen ? 'h-full w-full flex items-center justify-center p-2' : 'max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6 sm:py-8'}`}>
                 {/* Upload Section */}
                 {!isSharedView && !pdfData && !isUploading && (
-                    <div className="flex flex-col items-center justify-center min-h-[70vh]">
-                        <div className="text-center mb-12">
-                            <h1 className="text-4xl font-bold text-gray-900 mb-4">Create Interactive Flipbooks</h1>
-                            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+                    <div className="flex flex-col items-center justify-center min-h-[70vh] p-4">
+                        <div className="text-center mb-8 sm:mb-12">
+                            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-3 sm:mb-4">
+                                Create Interactive Flipbooks
+                            </h1>
+                            <p className="text-sm sm:text-lg text-gray-600 max-w-2xl mx-auto px-2">
                                 Upload your PDF to create a beautiful, interactive flipbook experience
                             </p>
                         </div>
 
-                        <div className="max-w-md w-full">
+                        <div className="w-full max-w-md">
                             <div 
-                                className="bg-white rounded-xl border-2 border-dashed border-gray-300 shadow-sm p-8 hover:border-blue-400 transition-colors"
+                                className="bg-white rounded-xl border-2 border-dashed border-gray-300 shadow-sm p-6 sm:p-8 hover:border-blue-400 transition-colors"
                                 onDragOver={handleDragOver}
                                 onDrop={handleDrop}
                             >
                                 <div className="text-center mb-6">
-                                    <div className="w-16 h-16 mx-auto bg-blue-50 rounded-full flex items-center justify-center mb-4">
-                                        <svg className="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <div className="w-12 h-12 sm:w-16 sm:h-16 mx-auto bg-blue-50 rounded-full flex items-center justify-center mb-4">
+                                        <svg className="w-6 h-6 sm:w-8 sm:h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                         </svg>
                                     </div>
-                                    <h2 className="text-xl font-semibold text-gray-900 mb-2">Upload PDF</h2>
-                                    <p className="text-gray-600 mb-4">Drag & drop or click to browse</p>
-                                    <p className="text-sm text-gray-500">Supports files up to 30MB</p>
+                                    <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">Upload PDF</h2>
+                                    <p className="text-gray-600 mb-3 sm:mb-4 text-sm sm:text-base">Drag & drop or click to browse</p>
+                                    <p className="text-xs sm:text-sm text-gray-500">Supports files up to 30MB</p>
                                 </div>
                                 
                                 <button
                                     onClick={handleUploadClick}
-                                    className="w-full py-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center space-x-2 mb-4"
+                                    className="w-full py-3 sm:py-4 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center space-x-2 mb-4"
                                 >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                                     </svg>
-                                    <span>Choose PDF File</span>
+                                    <span className="text-sm sm:text-base">Choose PDF File</span>
                                 </button>
                                 
                                 <input
@@ -599,25 +653,25 @@ function Flipbook() {
 
                 {/* Upload Progress Section */}
                 {isUploading && (
-                    <div className="flex flex-col items-center justify-center min-h-[60vh]">
-                        <div className="max-w-md w-full bg-white rounded-xl border border-gray-200 shadow-sm p-8">
+                    <div className="flex flex-col items-center justify-center min-h-[60vh] p-4">
+                        <div className="w-full max-w-md bg-white rounded-xl border border-gray-200 shadow-sm p-6 sm:p-8">
                             <div className="text-center mb-6">
-                                <div className="w-16 h-16 mx-auto bg-blue-50 rounded-full flex items-center justify-center mb-4">
+                                <div className="w-12 h-12 sm:w-16 sm:h-16 mx-auto bg-blue-50 rounded-full flex items-center justify-center mb-4">
                                     <div className="relative">
-                                        <div className="w-12 h-12 border-4 border-blue-200 rounded-full"></div>
+                                        <div className="w-10 h-10 sm:w-12 sm:h-12 border-4 border-blue-200 rounded-full"></div>
                                         <div 
-                                            className="absolute top-0 left-0 w-12 h-12 border-4 border-blue-600 rounded-full animate-spin"
+                                            className="absolute top-0 left-0 w-10 h-10 sm:w-12 sm:h-12 border-4 border-blue-600 rounded-full animate-spin"
                                             style={{ clipPath: `inset(0 ${100 - uploadProgress}% 0 0)` }}
                                         ></div>
                                     </div>
                                 </div>
-                                <h2 className="text-xl font-semibold text-gray-900 mb-2">Uploading PDF</h2>
-                                <p className="text-gray-600 truncate">{fileName}</p>
+                                <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">Uploading PDF</h2>
+                                <p className="text-gray-600 text-sm sm:text-base truncate">{fileName}</p>
                             </div>
                             
                             {/* Progress Bar */}
                             <div className="mb-6">
-                                <div className="flex justify-between text-sm text-gray-600 mb-2">
+                                <div className="flex justify-between text-xs sm:text-sm text-gray-600 mb-2">
                                     <span>Uploading...</span>
                                     <span>{uploadProgress}%</span>
                                 </div>
@@ -629,7 +683,7 @@ function Flipbook() {
                                 </div>
                             </div>
                             
-                            <div className="text-center text-gray-500 text-sm">
+                            <div className="text-center text-gray-500 text-xs sm:text-sm space-y-1">
                                 <p>• Please wait while we upload your file</p>
                                 <p>• Do not close this window</p>
                                 <p>• Uploading {(fileName && /\.pdf$/i.test(fileName)) ? 'PDF' : 'file'}...</p>
@@ -641,20 +695,20 @@ function Flipbook() {
                 {/* Loading States for Shared View */}
                 {isSharedLoading && (
                     <div className="flex flex-col items-center justify-center min-h-[60vh]">
-                        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mb-4"></div>
-                        <p className="text-lg font-medium text-gray-700">Loading shared flipbook...</p>
-                        <p className="text-gray-500">Please wait</p>
+                        <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-t-2 border-b-2 border-blue-600 mb-4"></div>
+                        <p className="text-base sm:text-lg font-medium text-gray-700">Loading shared flipbook...</p>
+                        <p className="text-gray-500 text-sm sm:text-base">Please wait</p>
                     </div>
                 )}
 
                 {/* Flipbook Viewer */}
                 {pdfData && !isUploading && !isSharedLoading && (
-                    <div className={`flex flex-col items-center ${isFullscreen ? 'w-full h-full justify-center' : ''}`}>
+                    <div className={`flex flex-col items-center ${isFullscreen ? 'w-full h-full justify-center p-2' : ''}`}>
                         {/* Flipbook Header - Only show when not in fullscreen */}
-                        {!isFullscreen && (
-                            <div className="mb-8 text-center">
-                                <h2 className="text-2xl font-bold text-gray-900">Your Flipbook</h2>
-                                <p className="text-gray-600 mt-1">
+                        {!isFullscreen && !isMobile && (
+                            <div className="mb-6 sm:mb-8 text-center px-2">
+                                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Your Flipbook</h2>
+                                <p className="text-gray-600 mt-1 text-sm sm:text-base">
                                     Pages {currentPage} - {Math.min(currentPage + 1, numPages || 1)} of {numPages || 1}
                                 </p>
                             </div>
@@ -667,9 +721,9 @@ function Flipbook() {
                                 onLoadSuccess={onDocumentLoadSuccess}
                                 onLoadError={onDocumentLoadError}
                                 loading={
-                                    <div className="flex flex-col items-center justify-center py-20">
-                                        <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600"></div>
-                                        <p className="text-gray-700 mt-3">Loading document...</p>
+                                    <div className="flex flex-col items-center justify-center py-12 sm:py-20">
+                                        <div className="animate-spin rounded-full h-6 w-6 sm:h-8 sm:w-8 border-t-2 border-b-2 border-blue-600"></div>
+                                        <p className="text-gray-700 mt-3 text-sm sm:text-base">Loading document...</p>
                                     </div>
                                 }
                             >
@@ -688,12 +742,12 @@ function Flipbook() {
                                             style={{ 
                                                 backgroundColor: '#f5f5f5'
                                             }}
-                                            flippingTime={600}
+                                            flippingTime={isMobile ? 400 : 600}
                                             usePortrait={true}
                                             maxShadowOpacity={0.2}
                                             showCover={false}
                                             mobileScrollSupport={true}
-                                            swipeDistance={30}
+                                            swipeDistance={isMobile ? 20 : 30}
                                             showPageCorners={false}
                                             onFlip={(e) => setCurrentPage(e.data + 1)}
                                         >
@@ -713,22 +767,23 @@ function Flipbook() {
 
                         {/* Bottom Controls - Only show when not in fullscreen */}
                         {!isFullscreen && (
-                            <div className="mt-8 flex flex-col items-center space-y-6 w-full max-w-2xl">
+                            <div className="mt-6 sm:mt-8 flex flex-col items-center space-y-4 sm:space-y-6 w-full max-w-2xl px-2">
                                 {/* Page Navigation */}
-                                <div className="flex items-center justify-center space-x-4">
+                                <div className="flex items-center justify-center space-x-2 sm:space-x-4 w-full">
                                     <button
                                         onClick={() => handlePageChange(currentPage - 1)}
                                         disabled={currentPage <= 1}
-                                        className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-40 flex items-center space-x-2"
+                                        className="px-3 py-2 sm:px-4 sm:py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-40 flex items-center space-x-1 sm:space-x-2 text-sm sm:text-base"
                                     >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                                         </svg>
-                                        <span>Previous</span>
+                                        <span className="hidden sm:inline">Previous</span>
+                                        <span className="sm:hidden">Prev</span>
                                     </button>
                                     
                                     <div className="flex items-center space-x-2">
-                                        <span className="text-gray-600 text-sm">Page:</span>
+                                        <span className="text-gray-600 text-xs sm:text-sm hidden sm:inline">Page:</span>
                                         <div className="flex items-center bg-gray-100 rounded">
                                             <button 
                                                 onClick={() => handlePageChange(currentPage - 1)}
@@ -737,7 +792,7 @@ function Flipbook() {
                                             >
                                                 ←
                                             </button>
-                                            <span className="px-3 py-1 text-sm font-medium min-w-[60px] text-center">
+                                            <span className="px-2 sm:px-3 py-1 text-xs sm:text-sm font-medium min-w-[50px] sm:min-w-[60px] text-center">
                                                 {currentPage} / {numPages || 1}
                                             </span>
                                             <button 
@@ -753,32 +808,34 @@ function Flipbook() {
                                     <button
                                         onClick={() => handlePageChange(currentPage + 1)}
                                         disabled={currentPage >= (numPages || 1)}
-                                        className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-40 flex items-center space-x-2"
+                                        className="px-3 py-2 sm:px-4 sm:py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 disabled:opacity-40 flex items-center space-x-1 sm:space-x-2 text-sm sm:text-base"
                                     >
-                                        <span>Next</span>
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <span className="hidden sm:inline">Next</span>
+                                        <span className="sm:hidden">Next</span>
+                                        <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                                         </svg>
                                     </button>
                                 </div>
 
                                 {/* Action Buttons */}
-                                <div className="flex items-center justify-center space-x-4 pt-4 border-t border-gray-200 w-full">
+                                <div className="flex items-center justify-center space-x-2 sm:space-x-4 pt-4 border-t border-gray-200 w-full">
                                     <button
                                         onClick={handleUploadClick}
-                                        className="px-4 py-2 text-blue-600 hover:text-blue-700 text-sm flex items-center space-x-1"
+                                        className="px-3 py-1 sm:px-4 sm:py-2 text-blue-600 hover:text-blue-700 text-xs sm:text-sm flex items-center space-x-1"
                                     >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                                         </svg>
-                                        <span>Upload New</span>
+                                        <span className="hidden sm:inline">Upload New</span>
+                                        <span className="sm:hidden">New</span>
                                     </button>
                                     
                                     <button
                                         onClick={removePDF}
-                                        className="px-4 py-2 text-red-600 hover:text-red-700 text-sm flex items-center space-x-1"
+                                        className="px-3 py-1 sm:px-4 sm:py-2 text-red-600 hover:text-red-700 text-xs sm:text-sm flex items-center space-x-1"
                                     >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                         </svg>
                                         <span>Remove</span>
@@ -786,9 +843,9 @@ function Flipbook() {
                                     
                                     <button
                                         onClick={toggleFullscreen}
-                                        className="px-4 py-2 text-gray-600 hover:text-gray-700 text-sm flex items-center space-x-1"
+                                        className="px-3 py-1 sm:px-4 sm:py-2 text-gray-600 hover:text-gray-700 text-xs sm:text-sm flex items-center space-x-1"
                                     >
-                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-5V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
                                         </svg>
                                         <span>Fullscreen</span>
@@ -796,19 +853,19 @@ function Flipbook() {
                                 </div>
 
                                 {/* Share Section */}
-                                <div className="pt-4 border-t border-gray-200 w-full">
+                                <div className="pt-3 sm:pt-4 border-t border-gray-200 w-full">
                                     <div className="text-center">
-                                        <p className="text-gray-600 text-sm mb-2">Share this flipbook</p>
-                                        <div className="flex items-center justify-center space-x-2">
+                                        <p className="text-gray-600 text-xs sm:text-sm mb-2">Share this flipbook</p>
+                                        <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:space-x-2">
                                             <input
                                                 type="text"
                                                 value={shareableFlipbookUrl || ''}
                                                 readOnly
-                                                className="px-3 py-2 text-sm border border-gray-300 rounded bg-gray-50 flex-1 max-w-md"
+                                                className="px-3 py-2 text-xs sm:text-sm border border-gray-300 rounded bg-gray-50 w-full max-w-md"
                                             />
                                             <button
                                                 onClick={copyShareLink}
-                                                className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700"
+                                                className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 whitespace-nowrap"
                                             >
                                                 Copy Link
                                             </button>
@@ -823,22 +880,22 @@ function Flipbook() {
 
                 {/* Error Display */}
                 {error && (
-                    <div className="flex justify-center py-12">
+                    <div className="flex justify-center py-8 sm:py-12 px-4">
                         <div className="max-w-lg w-full">
-                            <div className="bg-white border border-red-200 rounded-xl p-6 shadow-sm">
-                                <div className="flex items-center mb-4">
-                                    <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center mr-3">
-                                        <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <div className="bg-white border border-red-200 rounded-xl p-4 sm:p-6 shadow-sm">
+                                <div className="flex items-start mb-4">
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 bg-red-100 rounded-lg flex items-center justify-center mr-3 flex-shrink-0">
+                                        <svg className="w-4 h-4 sm:w-6 sm:h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                         </svg>
                                     </div>
                                     <div>
-                                        <h3 className="font-semibold text-gray-900">Error</h3>
-                                        <p className="text-sm text-gray-600">{error}</p>
+                                        <h3 className="font-semibold text-gray-900 text-sm sm:text-base">Error</h3>
+                                        <p className="text-xs sm:text-sm text-gray-600 mt-1">{error}</p>
                                     </div>
                                 </div>
                                 
-                                <div className="flex space-x-3">
+                                <div className="flex flex-col sm:flex-row gap-2 sm:space-x-3">
                                     {!isSharedView && (
                                         <button
                                             onClick={handleUploadClick}
@@ -863,9 +920,9 @@ function Flipbook() {
             {/* Footer - Only show when not in fullscreen */}
             {!isFullscreen && !pdfData && (
                 <div className="bg-white border-t border-gray-200">
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
                         <div className="text-center">
-                            <p className="text-gray-600 text-sm">
+                            <p className="text-gray-600 text-xs sm:text-sm">
                                 © {new Date().getFullYear()} BookBuddy Flip
                             </p>
                         </div>
