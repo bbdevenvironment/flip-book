@@ -15,7 +15,7 @@ const app = express();
 // ********************************************
 // Use memoryStorage for Vercel Serverless compatibility
 const storage = multer.memoryStorage();
-const upload = multer({ 
+const upload = multer({ 
     storage: storage,
     fileFilter: (req, file, cb) => {
         if (file.mimetype !== 'application/pdf') {
@@ -38,9 +38,9 @@ const CORS_ALLOWED_ORIGINS = [
 ];
 
 const corsOptions = {
-  origin: CORS_ALLOWED_ORIGINS,
-  credentials: true,
-  methods: ['GET', 'POST', 'OPTIONS'] 
+  origin: CORS_ALLOWED_ORIGINS,
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'] 
 };
 
 app.use(cors(corsOptions));
@@ -77,9 +77,11 @@ app.post('/api/upload-pdf', (req, res) => {
 
             // 2. SAVE link to Postgres (Permanent Storage)
             await sql`
-                INSERT INTO flipbook_links (filename, blob_url) 
-                VALUES (${filename}, ${blob.url})
-                ON CONFLICT (filename) DO UPDATE SET blob_url = EXCLUDED.blob_url;
+                INSERT INTO flipbook_links (filename, blob_url, uploaded_at) 
+                VALUES (${filename}, ${blob.url}, NOW())
+                ON CONFLICT (filename) DO UPDATE SET 
+                blob_url = EXCLUDED.blob_url,
+                uploaded_at = NOW();
             `;
 
         } catch (error) {
@@ -115,7 +117,7 @@ app.get('/api/get-pdf-url', async (req, res) => {
 
     try {
         const result = await sql`
-            SELECT blob_url FROM flipbook_links WHERE filename = ${filename} LIMIT 1;
+            SELECT blob_url, uploaded_at FROM flipbook_links WHERE filename = ${filename} LIMIT 1;
         `;
 
         if (result.rows.length === 0) {
@@ -123,11 +125,13 @@ app.get('/api/get-pdf-url', async (req, res) => {
         }
 
         const blobUrl = result.rows[0].blob_url;
+        const uploadedAt = result.rows[0].uploaded_at;
         
         res.json({
             success: true,
             publicFileUrl: blobUrl,
-            filename: filename
+            filename: filename,
+            uploaded_at: uploadedAt
         });
 
     } catch (error) {
@@ -137,15 +141,49 @@ app.get('/api/get-pdf-url', async (req, res) => {
 });
 // ********************************************
 
+// ********************************************
+// NEW ENDPOINT: Get flipbook history
+// ********************************************
+app.get('/api/get-history', async (req, res) => {
+    try {
+        const result = await sql`
+            SELECT filename, blob_url, uploaded_at 
+            FROM flipbook_links 
+            ORDER BY uploaded_at DESC 
+            LIMIT 50;
+        `;
+
+        const history = result.rows.map(row => ({
+            filename: row.filename,
+            blob_url: row.blob_url,
+            uploaded_at: row.uploaded_at,
+            pages: 0 // Will be populated by frontend when PDF loads
+        }));
+
+        res.json({
+            success: true,
+            history: history
+        });
+
+    } catch (error) {
+        console.error('Database history error:', error);
+        res.status(500).json({ 
+            success: false, 
+            message: 'Failed to fetch history',
+            error: error.message 
+        });
+    }
+});
+
 // Health Check Endpoint (Tests database connection)
 app.get('/api/health', async (req, res) => {
     try {
         await sql`SELECT 1;`; 
-        res.json({ 
-            status: 'OK', 
+        res.json({ 
+            status: 'OK', 
             message: 'BookBuddy Server and Database are running.',
             db_status: 'Connected'
-        });
+        });
     } catch (error) {
         res.status(500).json({
             status: 'ERROR',
@@ -162,6 +200,7 @@ app.get('/', (req, res) => {
         endpoints: {
             upload: 'POST /api/upload-pdf',
             lookup: 'GET /api/get-pdf-url?filename={id}',
+            history: 'GET /api/get-history',
             health: 'GET /api/health'
         }
     });

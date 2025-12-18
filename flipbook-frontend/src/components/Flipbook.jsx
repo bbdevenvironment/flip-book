@@ -237,24 +237,30 @@ function Flipbook() {
         const viewportHeight = window.innerHeight;
         
         if (isFullscreen) {
-            // Fullscreen mode - calculate based on available space
-            const availableWidth = viewportWidth * 0.95; // 95% of screen width
-            const availableHeight = viewportHeight * 0.9; // 90% of screen height
+            // Fullscreen mode - adjust for better fit
+            const availableWidth = viewportWidth * 0.92; // 92% of screen width
+            const availableHeight = viewportHeight * 0.88; // 88% of screen height
             
-            // Use A4 aspect ratio (1:√2 ≈ 1:1.414)
-            const aspectRatio = 1 / Math.SQRT2; // Portrait orientation
+            // Standard A4 aspect ratio for PDFs
+            const aspectRatio = 210 / 297; // A4 portrait ratio (width/height)
             
-            // Calculate width based on height constraint
-            let width = availableHeight * aspectRatio;
+            // Calculate based on available height first
             let height = availableHeight;
+            let width = height * aspectRatio;
             
-            // If width exceeds available width, recalculate based on width constraint
+            // If width exceeds available width, recalculate based on width
             if (width > availableWidth) {
                 width = availableWidth;
                 height = width / aspectRatio;
             }
             
-            // Ensure dimensions are integers
+            // Ensure we don't go below minimum dimensions
+            const minWidth = isMobile ? 280 : 400;
+            const minHeight = isMobile ? 396 : 560;
+            
+            if (width < minWidth) width = minWidth;
+            if (height < minHeight) height = minHeight;
+            
             return {
                 width: Math.floor(width),
                 height: Math.floor(height)
@@ -266,13 +272,13 @@ function Flipbook() {
             const safeWidth = viewportWidth * 0.92; // 92% of viewport width
             const safeHeight = viewportHeight * 0.6; // 60% of viewport height
             
-            const portraitRatio = 0.707;
+            const aspectRatio = 210 / 297; // A4 portrait ratio
             let width = Math.min(safeWidth, 500);
-            let height = width / portraitRatio;
+            let height = width / aspectRatio;
             
             if (height > safeHeight) {
                 height = safeHeight;
-                width = height * portraitRatio;
+                width = height * aspectRatio;
             }
             
             // Minimum dimensions for mobile
@@ -289,13 +295,13 @@ function Flipbook() {
         const viewportWidthDesktop = viewportWidth * 0.85;
         const viewportHeightDesktop = viewportHeight * 0.7;
         
-        const portraitRatio = 0.707;
+        const aspectRatio = 210 / 297; // A4 portrait ratio
         let width = Math.min(viewportWidthDesktop, 800);
-        let height = width / portraitRatio;
+        let height = width / aspectRatio;
         
         if (height > viewportHeightDesktop) {
             height = viewportHeightDesktop;
-            width = height * portraitRatio;
+            width = height * aspectRatio;
         }
         
         // Minimum dimensions
@@ -330,7 +336,13 @@ function Flipbook() {
             const response = await fetch(HISTORY_API_ENDPOINT);
             if (response.ok) {
                 const data = await response.json();
-                setHistory(data.history || []);
+                if (data.success) {
+                    setHistory(data.history || []);
+                } else {
+                    console.error('Failed to load history:', data.message);
+                }
+            } else {
+                console.error('History API returned error:', response.status);
             }
         } catch (error) {
             console.error('Error loading history:', error);
@@ -354,7 +366,7 @@ function Flipbook() {
 
             const data = await response.json();
             
-            if (!data.publicFileUrl) {
+            if (!data.success || !data.publicFileUrl) {
                 throw new Error("Invalid flipbook data");
             }
 
@@ -446,12 +458,8 @@ function Flipbook() {
             setShareableFlipbookUrl(`${FRONTEND_BASE_URL}/?file=${response.filename}`); 
             setUploadProgress(100);
             
-            // Add to history immediately
-            setHistory(prev => [{
-                filename: response.filename,
-                uploaded_at: new Date().toISOString(),
-                pages: 0 // Will be updated when PDF loads
-            }, ...prev]);
+            // Add to history immediately and reload history
+            await loadHistory();
             
             const newUrl = `${FRONTEND_BASE_URL}/?file=${response.filename}`;
             window.history.pushState({ path: newUrl }, '', newUrl);
@@ -500,7 +508,7 @@ function Flipbook() {
         // Update history with page count for current file
         if (fileName) {
             setHistory(prev => prev.map(item => 
-                item.filename === fileName.split('.')[0] + '.pdf' 
+                item.filename === fileName 
                     ? { ...item, pages: numPages }
                     : item
             ));
@@ -616,7 +624,7 @@ function Flipbook() {
 
                     const data = await response.json();
                     
-                    if (!data.publicFileUrl) {
+                    if (!data.success || !data.publicFileUrl) {
                         throw new Error("Database record is incomplete. Cannot retrieve the Blob URL.");
                     }
 
@@ -675,7 +683,7 @@ function Flipbook() {
                                     <p className="text-xs text-gray-500">Interactive PDF Viewer</p>
                                 </div>
                                 
-                                {/* <button
+                                <button
                                     onClick={() => setShowHistory(true)}
                                     className="ml-2 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg flex items-center space-x-1"
                                 >
@@ -683,7 +691,7 @@ function Flipbook() {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
                                     <span className="hidden sm:inline">History</span>
-                                </button> */}
+                                </button>
                             </div>
 
                             {/* Right Side Actions */}
@@ -1224,7 +1232,7 @@ function Flipbook() {
                 <div className="bg-white border-t border-gray-200">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
                         <div className="text-center">
-                           <a href='https://www.book-buddy.in/' target='blank'><p className="text-gray-600 text-xs sm:text-sm">
+                           <a href='https://www.book-buddy.in/' target='_blank'><p className="text-gray-600 text-xs sm:text-sm">
                                 © {new Date().getFullYear()} Book-Buddy.in
                             </p> </a> 
                         </div>
