@@ -11,6 +11,7 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pd
 const DEPLOYED_BACKEND_URL = 'https://flip-book-backend.vercel.app'; 
 const UPLOAD_API_ENDPOINT = `${DEPLOYED_BACKEND_URL}/api/upload-pdf`;
 const LOOKUP_API_ENDPOINT = `${DEPLOYED_BACKEND_URL}/api/get-pdf-url`;
+const HISTORY_API_ENDPOINT = `${DEPLOYED_BACKEND_URL}/api/get-history`;
 const FRONTEND_BASE_URL = window.location.origin;
 
 // Maximum file size: 30MB
@@ -73,6 +74,125 @@ const FlipPage = React.forwardRef((props, ref) => {
 
 FlipPage.displayName = 'FlipPage';
 
+// History List Component
+const HistoryList = ({ history, onSelectHistory, onClose, isLoading }) => {
+    const [copiedIndex, setCopiedIndex] = useState(null);
+    
+    const formatDate = (dateString) => {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
+
+    const copyShareLink = (url, index) => {
+        navigator.clipboard.writeText(url);
+        setCopiedIndex(index);
+        setTimeout(() => setCopiedIndex(null), 2000);
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden">
+                <div className="p-6 border-b border-gray-200">
+                    <div className="flex justify-between items-center">
+                        <h2 className="text-2xl font-bold text-gray-900">Flipbook History</h2>
+                        <button
+                            onClick={onClose}
+                            className="p-2 hover:bg-gray-100 rounded-lg"
+                        >
+                            <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <p className="text-gray-600 mt-2">View and access your previously created flipbooks</p>
+                </div>
+                
+                <div className="p-6 overflow-y-auto max-h-[60vh]">
+                    {isLoading ? (
+                        <div className="flex flex-col items-center justify-center py-12">
+                            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-600 mb-4"></div>
+                            <p className="text-gray-700">Loading history...</p>
+                        </div>
+                    ) : history.length === 0 ? (
+                        <div className="text-center py-12">
+                            <div className="w-16 h-16 mx-auto bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                            </div>
+                            <h3 className="text-lg font-medium text-gray-900 mb-2">No History Yet</h3>
+                            <p className="text-gray-600">Upload a PDF to create your first flipbook!</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {history.map((item, index) => (
+                                <div 
+                                    key={index} 
+                                    className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+                                    onClick={() => onSelectHistory(item)}
+                                >
+                                    <div className="flex items-start mb-3">
+                                        <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center mr-3 flex-shrink-0">
+                                            <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            </svg>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <h4 className="font-medium text-gray-900 truncate">{item.filename}</h4>
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                {formatDate(item.uploaded_at)}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                copyShareLink(`${FRONTEND_BASE_URL}/?file=${item.filename}`, index);
+                                            }}
+                                            className="px-3 py-1 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200 flex items-center space-x-1"
+                                        >
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                            </svg>
+                                            <span>{copiedIndex === index ? 'Copied!' : 'Copy Link'}</span>
+                                        </button>
+                                        
+                                        <span className="text-xs text-gray-500">
+                                            {item.pages} pages
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+                
+                <div className="p-6 border-t border-gray-200 bg-gray-50">
+                    <div className="flex justify-between items-center">
+                        <p className="text-sm text-gray-600">
+                            Showing {history.length} flipbooks
+                        </p>
+                        <button
+                            onClick={onClose}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 // Main Flipbook Component
 function Flipbook() {
     const [numPages, setNumPages] = useState(null);
@@ -88,6 +208,9 @@ function Flipbook() {
     const [showShareOptions, setShowShareOptions] = useState(false);
     const [fileName, setFileName] = useState('');
     const [isMobile, setIsMobile] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
+    const [history, setHistory] = useState([]);
+    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
     
     const fileInputRef = useRef(null);
     const flipBookRef = useRef(null);
@@ -110,24 +233,28 @@ function Flipbook() {
 
     // Calculate dimensions for flipbook with mobile optimization
     const calculateDimensions = useCallback(() => {
-        const isPortrait = window.innerHeight > window.innerWidth;
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
         
         if (isFullscreen) {
-            // Fullscreen mode
-            const maxWidth = Math.min(viewportWidth * 0.95, 1200);
-            const maxHeight = Math.min(viewportHeight * 0.9, 900);
+            // Fullscreen mode - calculate based on available space
+            const availableWidth = viewportWidth * 0.95; // 95% of screen width
+            const availableHeight = viewportHeight * 0.9; // 90% of screen height
             
-            const portraitRatio = 0.707; // A4 ratio
-            let width = maxWidth;
-            let height = width / portraitRatio;
+            // Use A4 aspect ratio (1:√2 ≈ 1:1.414)
+            const aspectRatio = 1 / Math.SQRT2; // Portrait orientation
             
-            if (height > maxHeight) {
-                height = maxHeight;
-                width = height * portraitRatio;
+            // Calculate width based on height constraint
+            let width = availableHeight * aspectRatio;
+            let height = availableHeight;
+            
+            // If width exceeds available width, recalculate based on width constraint
+            if (width > availableWidth) {
+                width = availableWidth;
+                height = width / aspectRatio;
             }
             
+            // Ensure dimensions are integers
             return {
                 width: Math.floor(width),
                 height: Math.floor(height)
@@ -195,6 +322,58 @@ function Flipbook() {
             window.removeEventListener('resize', updateDimensions);
         };
     }, [calculateDimensions]);
+
+    // Load history
+    const loadHistory = async () => {
+        setIsLoadingHistory(true);
+        try {
+            const response = await fetch(HISTORY_API_ENDPOINT);
+            if (response.ok) {
+                const data = await response.json();
+                setHistory(data.history || []);
+            }
+        } catch (error) {
+            console.error('Error loading history:', error);
+        } finally {
+            setIsLoadingHistory(false);
+        }
+    };
+
+    // Handle history item selection
+    const handleHistorySelect = async (historyItem) => {
+        setError(null);
+        setIsSharedLoading(true);
+        setShowHistory(false);
+        
+        try {
+            const response = await fetch(`${LOOKUP_API_ENDPOINT}?filename=${historyItem.filename}`);
+            
+            if (!response.ok) {
+                throw new Error("Failed to load flipbook from history");
+            }
+
+            const data = await response.json();
+            
+            if (!data.publicFileUrl) {
+                throw new Error("Invalid flipbook data");
+            }
+
+            setPdfData(data.publicFileUrl); 
+            setShareableFlipbookUrl(`${FRONTEND_BASE_URL}/?file=${historyItem.filename}`);
+            setFileName(historyItem.filename);
+            
+            // Update URL
+            const newUrl = `${FRONTEND_BASE_URL}/?file=${historyItem.filename}`;
+            window.history.pushState({ path: newUrl }, '', newUrl);
+            
+        } catch (err) {
+            console.error('History load error:', err);
+            setError(`Error loading flipbook: ${err.message}`);
+            setPdfData(null);
+        } finally {
+            setIsSharedLoading(false);
+        }
+    };
 
     // Enhanced File Upload Function with progress tracking
     const uploadPdfToServer = async (file) => {
@@ -267,6 +446,13 @@ function Flipbook() {
             setShareableFlipbookUrl(`${FRONTEND_BASE_URL}/?file=${response.filename}`); 
             setUploadProgress(100);
             
+            // Add to history immediately
+            setHistory(prev => [{
+                filename: response.filename,
+                uploaded_at: new Date().toISOString(),
+                pages: 0 // Will be updated when PDF loads
+            }, ...prev]);
+            
             const newUrl = `${FRONTEND_BASE_URL}/?file=${response.filename}`;
             window.history.pushState({ path: newUrl }, '', newUrl);
 
@@ -310,6 +496,15 @@ function Flipbook() {
     const onDocumentLoadSuccess = ({ numPages }) => {
         setNumPages(numPages);
         setError(null);
+        
+        // Update history with page count for current file
+        if (fileName) {
+            setHistory(prev => prev.map(item => 
+                item.filename === fileName.split('.')[0] + '.pdf' 
+                    ? { ...item, pages: numPages }
+                    : item
+            ));
+        }
     };
     
     const onDocumentLoadError = (error) => {
@@ -348,13 +543,16 @@ function Flipbook() {
     // Toggle fullscreen function
     const toggleFullscreen = () => {
         setIsFullscreen(!isFullscreen);
+        // Reset dimensions when toggling fullscreen
+        setTimeout(() => {
+            setDimensions(calculateDimensions());
+        }, 100);
     };
 
     const copyShareLink = () => {
         if (shareableFlipbookUrl) {
             navigator.clipboard.writeText(shareableFlipbookUrl);
             setShowShareOptions(false);
-            // Optional: Add toast notification
             alert('Link copied to clipboard!');
         }
     };
@@ -377,8 +575,13 @@ function Flipbook() {
     // Handle escape key to exit fullscreen
     useEffect(() => {
         const handleEscKey = (event) => {
-            if (event.key === 'Escape' && isFullscreen) {
-                toggleFullscreen();
+            if (event.key === 'Escape') {
+                if (isFullscreen) {
+                    toggleFullscreen();
+                }
+                if (showHistory) {
+                    setShowHistory(false);
+                }
             }
         };
 
@@ -386,7 +589,7 @@ function Flipbook() {
         return () => {
             window.removeEventListener('keydown', handleEscKey);
         };
-    }, [isFullscreen]);
+    }, [isFullscreen, showHistory]);
 
     // useEffect Hook for Permanent Sharing Lookup
     useEffect(() => {
@@ -420,6 +623,7 @@ function Flipbook() {
                     setPdfData(data.publicFileUrl); 
                     setNumPages(null);
                     setError(null); 
+                    setFileName(filename);
 
                 } catch (err) {
                     console.error('Shared Link Error:', err);
@@ -432,6 +636,9 @@ function Flipbook() {
 
             fetchSharedPdf(fileData.filename);
         }
+        
+        // Load history on initial mount
+        loadHistory();
     }, []);
 
     const { width, height } = dimensions;
@@ -441,12 +648,22 @@ function Flipbook() {
             className={`${isFullscreen ? 'fixed inset-0 z-50 bg-white' : 'min-h-screen bg-gray-50'}`}
             ref={containerRef}
         >
+            {/* History Modal */}
+            {showHistory && (
+                <HistoryList
+                    history={history}
+                    onSelectHistory={handleHistorySelect}
+                    onClose={() => setShowHistory(false)}
+                    isLoading={isLoadingHistory}
+                />
+            )}
+
             {/* Header - Only show when not in fullscreen */}
             {!isFullscreen && (
                 <div className="bg-white border-b border-gray-200 shadow-sm">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                         <div className="flex justify-between items-center h-16">
-                            {/* Logo */}
+                            {/* Logo and History Button */}
                             <div className="flex items-center space-x-3">
                                 <div className="w-8 h-8 bg-blue-600 rounded flex items-center justify-center">
                                     <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -457,6 +674,16 @@ function Flipbook() {
                                     <h1 className="text-lg font-semibold text-gray-900">BookBuddy Flip</h1>
                                     <p className="text-xs text-gray-500">Interactive PDF Viewer</p>
                                 </div>
+                                
+                                {/* <button
+                                    onClick={() => setShowHistory(true)}
+                                    className="ml-2 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg flex items-center space-x-1"
+                                >
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span className="hidden sm:inline">History</span>
+                                </button> */}
                             </div>
 
                             {/* Right Side Actions */}
@@ -608,7 +835,56 @@ function Flipbook() {
                             </p>
                         </div>
 
-                        <div className="w-full max-w-md">
+                        <div className="w-full max-w-4xl">
+                            {/* History Preview (if available) */}
+                            {history.length > 0 && (
+                                <div className="mb-8 bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="text-lg font-semibold text-gray-900">Recent Flipbooks</h3>
+                                        <button
+                                            onClick={() => setShowHistory(true)}
+                                            className="text-sm text-blue-600 hover:text-blue-700 flex items-center space-x-1"
+                                        >
+                                            <span>View All</span>
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {history.slice(0, 3).map((item, index) => (
+                                            <div 
+                                                key={index}
+                                                onClick={() => handleHistorySelect(item)}
+                                                className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+                                            >
+                                                <div className="flex items-center mb-2">
+                                                    <div className="w-8 h-8 bg-blue-50 rounded flex items-center justify-center mr-2">
+                                                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                        </svg>
+                                                    </div>
+                                                    <h4 className="font-medium text-gray-900 truncate text-sm">{item.filename}</h4>
+                                                </div>
+                                                <p className="text-xs text-gray-500 mb-1">
+                                                    {new Date(item.uploaded_at).toLocaleDateString()}
+                                                </p>
+                                                <div className="flex justify-between items-center mt-2 pt-2 border-t border-gray-100">
+                                                    <span className="text-xs text-gray-500">
+                                                        {item.pages || '?'} pages
+                                                    </span>
+                                                    <button className="text-xs text-blue-600 hover:text-blue-700">
+                                                        Open →
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* Upload Card */}
                             <div 
                                 className="bg-white rounded-xl border-2 border-dashed border-gray-300 shadow-sm p-6 sm:p-8 hover:border-blue-400 transition-colors"
                                 onDragOver={handleDragOver}
@@ -643,10 +919,19 @@ function Flipbook() {
                                     className="hidden"
                                 />
                                 
-                                
+                                <div className="text-center">
+                                    <p className="text-sm text-gray-600 mb-2">Or view your history</p>
+                                    <button
+                                        onClick={() => setShowHistory(true)}
+                                        className="text-blue-600 hover:text-blue-700 text-sm flex items-center justify-center space-x-1 mx-auto"
+                                    >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <span>View Flipbook History ({history.length})</span>
+                                    </button>
+                                </div>
                             </div>
-                            
-                           
                         </div>
                     </div>
                 )}
@@ -696,7 +981,7 @@ function Flipbook() {
                 {isSharedLoading && (
                     <div className="flex flex-col items-center justify-center min-h-[60vh]">
                         <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-t-2 border-b-2 border-blue-600 mb-4"></div>
-                        <p className="text-base sm:text-lg font-medium text-gray-700">Loading shared flipbook...</p>
+                        <p className="text-base sm:text-lg font-medium text-gray-700">Loading flipbook...</p>
                         <p className="text-gray-500 text-sm sm:text-base">Please wait</p>
                     </div>
                 )}
@@ -709,7 +994,7 @@ function Flipbook() {
                             <div className="mb-6 sm:mb-8 text-center px-2">
                                 <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Your Flipbook</h2>
                                 <p className="text-gray-600 mt-1 text-sm sm:text-base">
-                                    Pages {currentPage} - {Math.min(currentPage + 1, numPages || 1)} of {numPages || 1}
+                                    {fileName} • {numPages || '?'} pages
                                 </p>
                             </div>
                         )}
@@ -740,7 +1025,8 @@ function Flipbook() {
                                             maxHeight={height}
                                             className="mx-auto"
                                             style={{ 
-                                                backgroundColor: '#f5f5f5'
+                                                backgroundColor: '#f5f5f5',
+                                                overflow: 'hidden'
                                             }}
                                             flippingTime={isMobile ? 400 : 600}
                                             usePortrait={true}
@@ -832,6 +1118,16 @@ function Flipbook() {
                                     </button>
                                     
                                     <button
+                                        onClick={() => setShowHistory(true)}
+                                        className="px-3 py-1 sm:px-4 sm:py-2 text-gray-600 hover:text-gray-700 text-xs sm:text-sm flex items-center space-x-1"
+                                    >
+                                        <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <span>History</span>
+                                    </button>
+                                    
+                                    <button
                                         onClick={removePDF}
                                         className="px-3 py-1 sm:px-4 sm:py-2 text-red-600 hover:text-red-700 text-xs sm:text-sm flex items-center space-x-1"
                                     >
@@ -905,6 +1201,12 @@ function Flipbook() {
                                         </button>
                                     )}
                                     <button
+                                        onClick={() => setShowHistory(true)}
+                                        className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
+                                    >
+                                        View History
+                                    </button>
+                                    <button
                                         onClick={removePDF}
                                         className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50"
                                     >
@@ -922,9 +1224,9 @@ function Flipbook() {
                 <div className="bg-white border-t border-gray-200">
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
                         <div className="text-center">
-                            <p className="text-gray-600 text-xs sm:text-sm">
-                                © {new Date().getFullYear()} BookBuddy Flip
-                            </p>
+                           <a href='https://www.book-buddy.in/' target='blank'><p className="text-gray-600 text-xs sm:text-sm">
+                                © {new Date().getFullYear()} Book-Buddy.in
+                            </p> </a> 
                         </div>
                     </div>
                 </div>
