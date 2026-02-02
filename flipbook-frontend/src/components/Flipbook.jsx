@@ -14,12 +14,13 @@ const LOOKUP_API_ENDPOINT = `${DEPLOYED_BACKEND_URL}/api/get-pdf-url`;
 const FlipPage = React.forwardRef((props, ref) => {
     const { pageNumber, width, height } = props; 
     return (
-        <div className="demoPage" ref={ref} style={{ height, width, backgroundColor: 'white', display: 'flex', overflow: 'hidden' }}>
+        <div className="demoPage" ref={ref} style={{ height, width, backgroundColor: 'white', display: 'flex', overflow: 'hidden', boxShadow: 'inset 0 0 10px rgba(0,0,0,0.1)' }}>
             <Page
                 pageNumber={pageNumber}
                 width={width}
                 renderAnnotationLayer={false}
                 renderTextLayer={false}
+                loading={<div className="flex items-center justify-center bg-gray-100" style={{width, height}}>Loading Page...</div>}
             />
         </div>
     );
@@ -38,17 +39,17 @@ function Flipbook() {
     const flipBookRef = useRef(null);
     const containerRef = useRef(null);
 
-    // Dynamic Full Viewport Calculation
+    // Optimized Fullscreen Dimensions for iFrame
     const updateDimensions = useCallback(() => {
         const vw = window.innerWidth;
         const vh = window.innerHeight;
         const aspectRatio = 0.707; // A4 Ratio
 
-        let height = vh * 0.95; // Use 95% of available vertical height
+        let height = vh * 0.98; // Maximize vertical space
         let width = height * aspectRatio;
 
-        if (width > vw * 0.95) {
-            width = vw * 0.95;
+        if (width > vw * 0.98) {
+            width = vw * 0.98;
             height = width / aspectRatio;
         }
 
@@ -61,34 +62,25 @@ function Flipbook() {
         return () => window.removeEventListener('resize', updateDimensions);
     }, [updateDimensions]);
 
-    // Check for shared file on load
+    // Fast Shared File Check
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const file = params.get('file');
         if (file) {
             fetch(`${LOOKUP_API_ENDPOINT}?filename=${file}`)
                 .then(res => res.json())
-                .then(data => data.publicFileUrl && setPdfData(data.publicFileUrl));
+                .then(data => {
+                    if (data.publicFileUrl) setPdfData(data.publicFileUrl);
+                });
         }
     }, []);
 
-    // Fixed Navigation Functions
-    const goNext = () => {
-        if (flipBookRef.current) {
-            flipBookRef.current.pageFlip().flipNext();
-        }
-    };
-
-    const goPrev = () => {
-        if (flipBookRef.current) {
-            flipBookRef.current.pageFlip().flipPrev();
-        }
-    };
+    // Programmatic Navigation
+    const goNext = () => flipBookRef.current?.pageFlip().flipNext();
+    const goPrev = () => flipBookRef.current?.pageFlip().flipPrev();
 
     const handleFullscreen = () => {
-        if (containerRef.current.requestFullscreen) {
-            containerRef.current.requestFullscreen();
-        }
+        if (containerRef.current.requestFullscreen) containerRef.current.requestFullscreen();
     };
 
     const uploadPdf = async (file) => {
@@ -106,80 +98,92 @@ function Flipbook() {
     };
 
     return (
-        <div ref={containerRef} className="fixed inset-0 bg-[#222] flex items-center justify-center overflow-hidden">
+        <div ref={containerRef} className="fixed inset-0 bg-[#1a1a1a] flex items-center justify-center overflow-hidden w-screen h-screen">
             
-            {/* UPLOAD SCREEN */}
+            {/* 1. UPLOAD SCREEN (Initial State) */}
             {!pdfData && !isUploading && (
-                <div className="bg-white p-10 rounded-2xl text-center shadow-2xl">
-                    <h2 className="text-2xl font-bold mb-6">BookBuddy Flipbook</h2>
+                <div className="bg-white p-8 rounded-xl text-center shadow-2xl border border-gray-200">
+                    <h2 className="text-xl font-bold mb-4">BookBuddy iFrame Viewer</h2>
                     <button 
                         onClick={() => fileInputRef.current.click()}
-                        className="bg-blue-600 text-white px-8 py-4 rounded-lg font-bold hover:bg-blue-700 transition-all"
+                        className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 transition-all"
                     >
-                        Upload PDF to Begin
+                        Click to Upload PDF
                     </button>
                     <input type="file" ref={fileInputRef} onChange={(e) => uploadPdf(e.target.files[0])} accept=".pdf" className="hidden" />
                 </div>
             )}
 
-            {isUploading && <div className="text-white text-xl animate-pulse">Processing Flipbook...</div>}
+            {/* 2. LOADING SCREEN (Faster transition) */}
+            {isUploading && (
+                <div className="flex flex-col items-center gap-3">
+                    <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-white text-sm">Uploading and Processing...</p>
+                </div>
+            )}
 
-            {/* FLIPBOOK VIEW */}
+            {/* 3. FULL SCREEN FLIPBOOK VIEW */}
             {pdfData && (
-                <div className="relative w-full h-full flex items-center justify-center">
+                <div className="relative w-full h-full flex items-center justify-center animate-in fade-in duration-500">
                     
-                    {/* LEFT ARROW BUTTON */}
+                    {/* NAV ARROWS: High contrast & Large clickable area */}
                     <button 
                         onClick={goPrev}
-                        className="absolute left-8 z-[100] p-5 bg-white/10 hover:bg-white/90 text-white hover:text-black rounded-full transition-all"
+                        className="absolute left-4 z-[100] p-4 bg-white/20 hover:bg-white text-gray-800 rounded-full backdrop-blur-sm transition-all shadow-xl"
                         style={{ display: currentPage === 1 ? 'none' : 'block' }}
                     >
-                        <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" /></svg>
+                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" /></svg>
                     </button>
 
-                    {/* THE BOOK */}
-                    <div className="shadow-[0_0_50px_rgba(0,0,0,0.5)]">
-                        <Document file={pdfData} onLoadSuccess={({numPages}) => setNumPages(numPages)}>
-                            <HTMLFlipBook 
-                                ref={flipBookRef}
-                                width={dimensions.width} 
-                                height={dimensions.height}
-                                size="fixed"
-                                showCover={false}
-                                flippingTime={700}
-                                usePortrait={true}
-                                startPage={0}
-                                onFlip={(e) => setCurrentPage(e.data + 1)}
-                            >
-                                {Array.from({ length: numPages }, (_, i) => (
-                                    <FlipPage key={i} pageNumber={i + 1} width={dimensions.width} height={dimensions.height} />
-                                ))}
-                            </HTMLFlipBook>
+                    <div className="flex items-center justify-center shadow-2xl">
+                        <Document 
+                            file={pdfData} 
+                            onLoadSuccess={({numPages}) => setNumPages(numPages)}
+                            loading={<div className="text-white">Rendering Document...</div>}
+                        >
+                            {/* The Flipbook remains hidden until dimensions are set */}
+                            {dimensions.width > 0 && (
+                                <HTMLFlipBook 
+                                    ref={flipBookRef}
+                                    width={dimensions.width} 
+                                    height={dimensions.height}
+                                    size="fixed"
+                                    showCover={false}
+                                    flippingTime={600}
+                                    usePortrait={true}
+                                    startPage={0}
+                                    onFlip={(e) => setCurrentPage(e.data + 1)}
+                                    className="mx-auto"
+                                >
+                                    {Array.from({ length: numPages }, (_, i) => (
+                                        <FlipPage key={i} pageNumber={i + 1} width={dimensions.width} height={dimensions.height} />
+                                    ))}
+                                </HTMLFlipBook>
+                            )}
                         </Document>
                     </div>
 
-                    {/* RIGHT ARROW BUTTON */}
                     <button 
                         onClick={goNext}
-                        className="absolute right-8 z-[100] p-5 bg-white/10 hover:bg-white/90 text-white hover:text-black rounded-full transition-all"
+                        className="absolute right-4 z-[100] p-4 bg-white/20 hover:bg-white text-gray-800 rounded-full backdrop-blur-sm transition-all shadow-xl"
                         style={{ display: currentPage === numPages ? 'none' : 'block' }}
                     >
-                        <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" /></svg>
+                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" /></svg>
                     </button>
 
-                    {/* TOP CONTROLS (Fullscreen & Close) */}
-                    <div className="absolute top-6 right-8 flex gap-4">
-                        <button onClick={handleFullscreen} className="bg-white/20 hover:bg-white/90 text-white hover:text-black p-3 rounded-lg backdrop-blur transition-all">
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-5V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" /></svg>
+                    {/* TOP ACTION BAR */}
+                    <div className="absolute top-4 right-4 flex gap-3">
+                        <button onClick={handleFullscreen} className="p-2 bg-white/10 hover:bg-white/90 text-white hover:text-black rounded transition-all">
+                             ⛶ Fullscreen
                         </button>
-                        <button onClick={() => setPdfData(null)} className="bg-red-500/20 hover:bg-red-500 text-white p-3 rounded-lg backdrop-blur transition-all">
-                            ✕ Close
+                        <button onClick={() => setPdfData(null)} className="p-2 bg-red-500/20 hover:bg-red-500 text-white rounded transition-all">
+                            ✕ Reset
                         </button>
                     </div>
 
-                    {/* PAGE INDICATOR */}
-                    <div className="absolute bottom-6 bg-black/50 text-white px-6 py-2 rounded-full backdrop-blur">
-                        Page {currentPage} of {numPages}
+                    {/* MINIMALIST INDICATOR */}
+                    <div className="absolute bottom-4 bg-black/40 text-white/80 px-4 py-1 rounded-full text-xs">
+                        {currentPage} / {numPages}
                     </div>
                 </div>
             )}
