@@ -73,10 +73,6 @@ function Flipbook() {
         }
     }, []);
 
-    // Programmatic Navigation
-    const goNext = () => flipBookRef.current?.pageFlip().flipNext();
-    const goPrev = () => flipBookRef.current?.pageFlip().flipPrev();
-
     const handleFullscreen = () => {
         if (containerRef.current.requestFullscreen) {
             containerRef.current.requestFullscreen();
@@ -86,11 +82,11 @@ function Flipbook() {
     return (
         <div ref={containerRef} className="fixed inset-0 bg-[#1a1a1a] flex items-center justify-center overflow-hidden w-screen h-screen">
             
-            {/* 1. INITIAL STATE: If no blob yet, show a clean loader or nothing */}
+            {/* 1. INITIAL STATE: Subtle Loader */}
             {!pdfData && (
                 <div className="flex flex-col items-center gap-3">
                     <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-white/50 text-xs tracking-widest">INITIALIZING FLIPBOOK</p>
+                    <p className="text-white/30 text-[10px] tracking-[0.2em]">LOADING</p>
                 </div>
             )}
 
@@ -98,16 +94,8 @@ function Flipbook() {
             {pdfData && (
                 <div className="relative w-full h-full flex items-center justify-center animate-in fade-in zoom-in duration-700">
                     
-                    {/* NAV ARROWS */}
-                    <button 
-                        onClick={goPrev}
-                        className="absolute left-4 z-[100] p-4 bg-white/10 hover:bg-white text-gray-800 rounded-full backdrop-blur-md transition-all shadow-2xl border border-white/20"
-                        style={{ visibility: currentPage === 1 ? 'hidden' : 'visible' }}
-                    >
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7" /></svg>
-                    </button>
-
-                    <div className="flex items-center justify-center shadow-[0_0_60px_rgba(0,0,0,0.7)]">
+                    {/* THE BOOK (Navigation happens via page clicks/drags) */}
+                    <div className="flex items-center justify-center shadow-[0_0_60px_rgba(0,0,0,0.8)] cursor-pointer">
                         <Document 
                             file={pdfData} 
                             onLoadSuccess={({numPages}) => setNumPages(numPages)}
@@ -125,6 +113,8 @@ function Flipbook() {
                                     startPage={0}
                                     onFlip={(e) => setCurrentPage(e.data + 1)}
                                     className="mx-auto"
+                                    showPageCorners={true} // Visual hint that pages can be flipped
+                                    disableFlipByClick={false} // Ensure clicking works for navigation
                                 >
                                     {Array.from({ length: numPages || 0 }, (_, i) => (
                                         <FlipPage key={i} pageNumber={i + 1} width={dimensions.width} height={dimensions.height} />
@@ -134,23 +124,18 @@ function Flipbook() {
                         </Document>
                     </div>
 
-                    <button 
-                        onClick={goNext}
-                        className="absolute right-4 z-[100] p-4 bg-white/10 hover:bg-white text-gray-800 rounded-full backdrop-blur-md transition-all shadow-2xl border border-white/20"
-                        style={{ visibility: currentPage === numPages ? 'hidden' : 'visible' }}
-                    >
-                        <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" /></svg>
-                    </button>
-
-                    {/* MINIMALIST OVERLAY CONTROLS */}
+                    {/* TOP ACTION BUTTONS */}
                     <div className="absolute top-4 right-4 flex gap-2">
-                        <button onClick={handleFullscreen} className="px-3 py-1.5 bg-white/10 hover:bg-white/90 text-white hover:text-black rounded text-xs transition-all backdrop-blur">
+                        <button 
+                            onClick={handleFullscreen} 
+                            className="px-4 py-2 bg-white/5 hover:bg-white/20 text-white/50 hover:text-white rounded-md text-[10px] transition-all backdrop-blur-sm border border-white/10"
+                        >
                              FULLSCREEN
                         </button>
                     </div>
 
-                    {/* PAGE COUNT */}
-                    <div className="absolute bottom-6 bg-black/40 text-white/60 px-4 py-1 rounded-full text-[10px] tracking-widest font-bold">
+                    {/* MINIMAL PAGE COUNT */}
+                    <div className="absolute bottom-6 bg-white/5 text-white/40 px-5 py-1.5 rounded-full text-[10px] tracking-widest border border-white/5 backdrop-blur-sm">
                         {currentPage} / {numPages}
                     </div>
                 </div>
